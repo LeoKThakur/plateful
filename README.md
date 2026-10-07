@@ -70,3 +70,7 @@ iPhone only delivers web push to apps added to the Home Screen (iOS 16.4+).
   bundled for offline search. Rebuild with `tools/build_fndds.py` (see the header for the source URL).
 - Open Food Facts: branded search and barcodes (online, crowd-sourced).
 - USDA Branded Foods: optional, needs a free key from api.data.gov (Profile → USDA API key).
+
+## License
+Plateful's code is released under the [MIT License](LICENSE). Bundled third-party code and
+data keep their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
