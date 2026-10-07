@@ -19,6 +19,8 @@ export const NUTRIENTS = [
 ];
 export const NKEYS = NUTRIENTS.map((n) => n.key);
 export const MICROS = NUTRIENTS.filter((n) => !['kcal', 'p', 'c', 'f', 'caf'].includes(n.key));
+// Nutrients that can have a goal: everything except calories and macros (those have their own settings).
+export const GOAL_NUTRIENTS = NUTRIENTS.filter((n) => !['kcal', 'p', 'c', 'f'].includes(n.key));
 
 export const ACTIVITY = [
   { key: 'sedentary', label: 'Sedentary', hint: 'Mostly sitting; little play or sport' },
@@ -107,7 +109,7 @@ export function targets(state) {
 
 // Daily reference values for the micronutrients we show, by age and sex (DRI RDA/AI;
 // sodium is the chronic-disease-risk reduction limit). `limit: true` means "stay under".
-export function microTargets(state, kcal) {
+export function defaultMicroTargets(state, kcal) {
   const age = ageYears(state.profile.birth) ?? 30;
   const male = state.profile.sex !== 'f';
   const pick = (table) => {
@@ -124,11 +126,29 @@ export function microTargets(state, kcal) {
     vitc: { amt: pick([[3, 15, 15], [8, 25, 25], [13, 45, 45], [18, 75, 65], [200, 90, 75]]) },
     vitd: { amt: 15 },
     chol: null,
+    sug: null,
+    caf: { amt: defaultCaffeineLimit(state), limit: true },
   };
 }
 
-// Health Canada caffeine guidance for children; 400 mg for adults.
+// The user's own goals (Profile › Daily targets › Nutrient goals) replace the defaults:
+// goals.micros[key] = { mode: 'min' | 'max' | 'off', amt }.
+export function microTargets(state, kcal) {
+  const out = defaultMicroTargets(state, kcal);
+  for (const [k, g] of Object.entries(state.goals.micros || {})) {
+    if (!(k in out)) continue;
+    if (g.mode === 'off') out[k] = null;
+    else if (g.amt > 0) out[k] = { amt: g.amt, limit: g.mode === 'max', custom: true };
+  }
+  return out;
+}
+
 export function caffeineLimit(state) {
+  return microTargets(state, 2000).caf?.amt ?? null;
+}
+
+// Health Canada caffeine guidance for children; 400 mg for adults.
+export function defaultCaffeineLimit(state) {
   const age = ageYears(state.profile.birth);
   if (age == null || age >= 19) return 400;
   if (age <= 3) return 0;

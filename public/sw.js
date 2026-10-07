@@ -1,5 +1,5 @@
 // Offline support: the app shell and food database are cached; everything else is network-first.
-const VERSION = 'plateful-v6';
+const VERSION = 'plateful-v7';
 const SHELL = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
   'js/app.js', 'js/store.js', 'js/nutrition.js', 'js/foods.js', 'js/scanner.js', 'js/charts.js', 'js/notify.js', 'js/parse.js', 'js/gestures.js', 'js/platform.js',
@@ -76,6 +76,7 @@ function message(kind, data, s) {
     if (s.open.includes('kcal')) parts.push(`${n(s.kcalGoal - s.kcal)} kcal`);
     if (s.open.includes('protein')) parts.push(`${n(s.proteinGoal - s.protein)} g protein`);
     if (s.open.includes('water')) parts.push(`${Math.max(1, Math.round(s.waterGoal - s.water))} cups of water`);
+    for (const x of s.extra || []) parts.push(`${x.left >= 10 ? n(x.left) : x.left.toFixed(1)} ${x.unit} ${x.label}`);
     if (!parts.length) return { title: 'All goals hit today', body: `${n(s.kcal)} kcal and ${n(s.protein)} g protein. Nice work.` };
     const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];
     return { title: 'Goals still open', body: `Still to go today: ${list}.` };

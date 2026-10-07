@@ -21,6 +21,7 @@ export function defaultState() {
       pct: { p: 20, c: 50, f: 30 },
       grams: { p: null, c: null, f: null },
       waterCups: null,
+      micros: {},       // custom nutrient goals: key -> { mode: 'min' | 'max' | 'off', amt }
       addExercise: false,
     },
     settings: { usdaKey: '', onboarded: false },

@@ -1,7 +1,7 @@
 import * as store from './store.js';
 import { MEALS, uid, todayStr, addDays, parseDate } from './store.js';
 import {
-  NUTRIENTS, MICROS, NKEYS, ACTIVITY, GOALS, ACTIVITIES, sumNutrients, scale, targets, microTargets,
+  NUTRIENTS, MICROS, GOAL_NUTRIENTS, defaultMicroTargets, NKEYS, ACTIVITY, GOALS, ACTIVITIES, sumNutrients, scale, targets, microTargets,
   caffeineLimit, waterGoalCups, unitsFor, findUnit, parseQty, fmtQty, fmt, ageYears, latestWeight,
   latestHeight, exerciseKcal, kgToLb, lbToKg, cmToIn, inToCm,
 } from './nutrition.js';
@@ -186,11 +186,11 @@ function openSheet(spec) {
   s.render = () => {
     const scroll = $('.sheet-body', el)?.scrollTop || 0;
     el.innerHTML = `
-      <header class="sheet-head">
+      <div class="sheet-head">
         <button type="button" class="link" data-close>${spec.closeLabel || (sheets.length > 0 && sheets.indexOf(s) > 0 ? 'Back' : 'Close')}</button>
         <h2 id="${titleId}">${esc(typeof spec.title === 'function' ? spec.title() : spec.title)}</h2>
         <span class="head-right">${spec.right ? spec.right() : ''}</span>
-      </header>
+      </div>
       <div class="sheet-body">${spec.html()}</div>`;
     $('[data-close]', el).onclick = () => closeSheet(s);
     dragToClose(el, $('.sheet-head', el), () => closeSheet(s));
@@ -406,8 +406,8 @@ function diaryView() {
   </section>
 
   <section class="card tracker">
-    <div class="tracker-head"><h2>Caffeine</h2><span class="muted ${caf > cafLim ? 'warn-text' : ''}">${fmt(caf)} / ${cafLim} mg</span></div>
-    <p class="hint">Includes caffeine from logged foods. Limit is Health Canada's guidance for your age.</p>
+    <div class="tracker-head"><h2>Caffeine</h2><span class="muted ${cafLim != null && caf > cafLim ? 'warn-text' : ''}">${fmt(caf)}${cafLim != null ? ` / ${cafLim}` : ''} mg</span></div>
+    <p class="hint">Includes caffeine from logged foods. ${cafLim == null ? 'No limit set.' : S.goals.micros?.caf?.mode === 'max' ? 'The limit is your own goal.' : 'Limit is Health Canada\'s guidance for your age.'}</p>
     <div class="row-btns">
       <button type="button" class="btn small" data-act="caffeine" data-mg="34">Soda</button>
       <button type="button" class="btn small" data-act="caffeine" data-mg="80">Energy drink</button>
@@ -657,7 +657,7 @@ function microRow(nn, value, target) {
   const pct = amt ? Math.min(100, (value / amt) * 100) : 0;
   const bad = target?.limit && value > amt;
   return `<div class="micro">
-    <div class="micro-top"><span>${nn.label}</span><span><b>${fmt(value, nn.dp)}</b>${amt ? ` / ${fmt(amt)}` : ''} ${nn.unit}${target?.limit ? ' <small>limit</small>' : ''}</span></div>
+    <div class="micro-top"><span>${nn.label}</span><span><b>${fmt(value, nn.dp)}</b>${amt ? ` / ${fmt(amt)}` : ''} ${nn.unit}${target?.limit ? ' <small>limit</small>' : ''}${target?.custom ? ' <small>your goal</small>' : ''}</span></div>
     ${amt ? `<div class="bar thin ${bad ? 'bad' : ''} ${target?.limit ? 'limit' : ''}"><i style="width:${pct}%"></i></div>` : ''}
   </div>`;
 }
@@ -746,6 +746,7 @@ function settingsView() {
       <div><dt>Carbs</dt><dd>${fmt(t.c)} g</dd></div>
       <div><dt>Fat</dt><dd>${fmt(t.f)} g</dd></div>
       <div><dt>Water</dt><dd>${waterGoalCups(S)} cups</dd></div>
+      <div><dt>Nutrient goals</dt><dd>${(() => { const n = Object.keys(g.micros || {}).length; return n ? `${n} set by you` : 'recommended amounts'; })()}</dd></div>
       <div><dt>Exercise calories</dt><dd>${g.addExercise ? 'added to budget' : 'not added'}</dd></div>
     </dl>
     <p class="hint">Calories come from the National Academies' Estimated Energy Requirement equations, which for kids and teens include the extra energy needed to grow. If you're under 18, check with your doctor before aiming to lose weight.</p>
@@ -1798,12 +1799,13 @@ function openSavedMeal(meal, isNew = false) {
 // ---------- Nutrients detail ----------
 
 function openNutrients(date) {
-  const tot = dayTotals(date);
-  const t = targets(S);
-  const mt = microTargets(S, t.kcal);
   openSheet({
     title: `Nutrients · ${prettyDate(date)}`,
-    html: () => `
+    html: () => {
+      const tot = dayTotals(date);
+      const t = targets(S);
+      const mt = microTargets(S, t.kcal);
+      return `
       <section class="card inset">
         ${microRow({ label: 'Calories', unit: 'kcal', dp: 0 }, tot.kcal, { amt: t.kcal })}
         ${microRow({ label: 'Protein', unit: 'g', dp: 0 }, tot.p, { amt: t.p })}
@@ -1812,9 +1814,13 @@ function openNutrients(date) {
       </section>
       <section class="card inset">
         ${MICROS.map((nn) => microRow(nn, tot[nn.key], mt[nn.key])).join('')}
-        ${microRow({ label: 'Caffeine (incl. manual)', unit: 'mg', dp: 0 }, tot.caf + (S.caffeine[date] || 0), { amt: caffeineLimit(S), limit: true })}
+        ${microRow({ label: 'Caffeine (incl. manual)', unit: 'mg', dp: 0 }, tot.caf + (S.caffeine[date] || 0), mt.caf)}
       </section>
-      <p class="hint">Targets are the daily Recommended Dietary Allowances for your age and sex. Items marked limit are amounts to stay under. Quick-add entries only count calories and macros.</p>`,
+      <p class="hint">Targets are the daily Recommended Dietary Allowances for your age and sex unless you set your own (marked “your goal”). Items marked limit are amounts to stay under. Quick-add entries only count calories and macros.</p>
+      <button type="button" class="btn block" data-goals>Set nutrient goals</button>`;
+    },
+    bind: (el) => { $('[data-goals]', el).onclick = () => openNutrientGoals(); },
+    live: true,
   });
 }
 
@@ -1987,11 +1993,13 @@ function openTargets() {
         </div>
         <p class="hint">Recommended ranges for ages 4–18: protein 10–30%, carbs 45–65%, fat 25–35%.</p>
         <div class="field"><label for="water">Water goal</label><input id="water" name="water" inputmode="decimal" class="has-unit" value="${g.waterCups || ''}" placeholder="${waterGoalCups({ ...S, goals: { ...g, waterCups: null } })} (by age)"><span class="unit">cups</span></div>
+        <button type="button" class="row" data-micro-goals><span class="row-main"><span class="row-title">Nutrient goals</span><span class="row-sub">Fiber, sugar, sodium, vitamins, caffeine and more</span></span><span class="row-kcal">›</span></button>
         <label class="field check"><input type="checkbox" name="addEx" ${g.addExercise ? 'checked' : ''}><span>Add exercise calories to the daily budget</span></label>
         <p class="hint">Usually leave this off: the activity level in your profile already covers normal sport. Turn it on if you set activity to Sedentary and log every practice.</p>
         <button class="btn primary block" type="submit">Save</button>
       </form>`,
     bind: (el) => {
+      $('[data-micro-goals]', el).onclick = () => openNutrientGoals();
       let mode = g.macroMode === 'g' ? 'g' : 'pct';
       const sum = () => {
         const s = ['p', 'c', 'f'].reduce((a, k) => a + (num($(`[name=pct-${k}]`, el).value) || 0), 0);
@@ -2128,6 +2136,79 @@ function openNotifications() {
       };
       $('[data-test]', el).onclick = () => run(() => sendTest(S), 'Sent. It should arrive in a few seconds.');
       $('[data-disable]', el).onclick = () => run(() => disablePush(S), 'Notifications are off.');
+    },
+  });
+}
+
+// ---------- Nutrient goals ----------
+
+function openNutrientGoals() {
+  const t = targets(S);
+  const defs = defaultMicroTargets(S, t.kcal);
+  const st = structuredClone(S.goals.micros || {});
+  const describe = (d) => (d ? `${d.limit ? 'at most' : 'at least'} ${fmt(d.amt)}` : 'no target');
+  let sheet;
+  sheet = openSheet({
+    title: 'Nutrient goals',
+    html: () => `
+      <p class="hint">Leave a nutrient on Recommended to use the standard amount for your age and sex, or set your own. “At least” goals you haven't reached show up in the evening goal reminder.</p>
+      <form class="form goals-form" novalidate>
+        ${GOAL_NUTRIENTS.map((nn) => {
+          const g = st[nn.key];
+          const mode = g?.mode || 'default';
+          return `<section class="card goal-row">
+            <div class="goal-head"><b>${nn.label}</b><small class="muted">Recommended: ${describe(defs[nn.key])}${defs[nn.key] ? ` ${nn.unit}` : ''}</small></div>
+            <div class="goal-inputs">
+              <select name="mode-${nn.key}" aria-label="${nn.label} goal type">
+                <option value="default" ${mode === 'default' ? 'selected' : ''}>Recommended</option>
+                <option value="min" ${mode === 'min' ? 'selected' : ''}>At least</option>
+                <option value="max" ${mode === 'max' ? 'selected' : ''}>At most</option>
+                <option value="off" ${mode === 'off' ? 'selected' : ''}>No goal</option>
+              </select>
+              <span class="goal-amt" ${mode === 'min' || mode === 'max' ? '' : 'hidden'}>
+                <input name="amt-${nn.key}" inputmode="decimal" value="${g?.amt ?? ''}" placeholder="${defs[nn.key]?.amt ?? ''}" aria-label="${nn.label} amount"><span>${nn.unit}</span>
+              </span>
+            </div>
+          </section>`;
+        }).join('')}
+        <button class="btn primary block" type="submit">Save</button>
+        <button type="button" class="btn danger block" data-reset>Reset all to recommended</button>
+      </form>`,
+    bind: (el) => {
+      const form = $('form', el);
+      $$('select[name^=mode-]', el).forEach((sel) => (sel.onchange = () => {
+        const box = sel.parentElement.querySelector('.goal-amt');
+        box.hidden = !['min', 'max'].includes(sel.value);
+        if (!box.hidden) {
+          const input = box.querySelector('input');
+          if (!input.value) input.value = input.placeholder;
+          input.focus();
+        }
+      }));
+      form.onsubmit = (ev) => {
+        ev.preventDefault();
+        const out = {};
+        for (const nn of GOAL_NUTRIENTS) {
+          const mode = form.elements[`mode-${nn.key}`].value;
+          if (mode === 'off') out[nn.key] = { mode };
+          if (mode === 'min' || mode === 'max') {
+            const amt = num(form.elements[`amt-${nn.key}`].value);
+            if (!(amt > 0)) { alert(`Enter an amount for ${nn.label}, or set it back to Recommended.`); return; }
+            out[nn.key] = { mode, amt };
+          }
+        }
+        S.goals.micros = out;
+        commit();
+        closeSheet(sheet);
+        toast('Nutrient goals saved');
+      };
+      $('[data-reset]', el).onclick = () => {
+        if (!confirm('Use the recommended amounts for every nutrient?')) return;
+        S.goals.micros = {};
+        commit();
+        closeSheet(sheet);
+        toast('Back to recommended amounts');
+      };
     },
   });
 }

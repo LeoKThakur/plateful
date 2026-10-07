@@ -26,7 +26,7 @@ Live: https://plateful.leokthakur.workers.dev
 Screenshots use made-up demo data.
 
 ## Features
-- Food diary by meal with calories left, macros, vitamins and minerals
+- Food diary by meal with calories left, macros, vitamins and minerals; set your own goal (at least, at most, or none) for any nutrient
 - About 5,400 USDA foods built in (works offline), brands and barcodes via Open Food Facts
 - Barcode scanner, custom foods, recipes, saved meals, favorites, one-tap re-logging, copy meal or day
 - Describe a meal in words ("2 eggs and toast"), parsed on the phone

@@ -6,7 +6,7 @@
 // service worker from the `summary` record saved here.
 
 import { saveSummary } from './store.js';
-import { targets, waterGoalCups, sumNutrients } from './nutrition.js';
+import { targets, waterGoalCups, sumNutrients, NUTRIENTS } from './nutrition.js';
 import { todayStr, addDays } from './store.js';
 
 export const DEFAULT_PREFS = {
@@ -42,6 +42,16 @@ export function computeSummary(S) {
   if (tot.kcal < t.kcal * 0.9) open.push('kcal');
   if (tot.p < t.p * 0.9) open.push('protein');
   if (waterCups < waterGoal - 0.05) open.push('water');
+  // Your own "at least" nutrient goals (fiber, calcium…) count too; recommended amounts don't,
+  // or the reminder would nag about every vitamin.
+  const extra = [];
+  for (const [k, g] of Object.entries(S.goals.micros || {})) {
+    if (g.mode !== 'min' || !(g.amt > 0) || tot[k] >= g.amt * 0.9) continue;
+    const nn = NUTRIENTS.find((x) => x.key === k);
+    if (!nn) continue;
+    open.push(k);
+    extra.push({ label: nn.label.toLowerCase(), left: Math.round((g.amt - tot[k]) * 10) / 10, unit: nn.unit });
+  }
 
   const week = Array.from({ length: 7 }, (_, i) => addDays(d, i - 6));
   const logged = week.filter((x) => (S.diary[x] || []).length);
@@ -67,6 +77,7 @@ export function computeSummary(S) {
     water: Math.round(waterCups * 10) / 10,
     meals,
     open,
+    extra,
     goalsMet: open.length === 0,
     badge: S.settings.push?.badge !== false,
     lastWeigh: latest?.d || null,
