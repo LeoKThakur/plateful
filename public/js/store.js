@@ -134,3 +134,10 @@ export function addDays(s, n) {
   d.setDate(d.getDate() + n);
   return todayStr(d);
 }
+
+// A small "how is today going" record the service worker reads to write reminder text.
+export async function saveSummary(summary) {
+  try {
+    await idb('readwrite', (st) => st.put(summary, 'summary'));
+  } catch {}
+}

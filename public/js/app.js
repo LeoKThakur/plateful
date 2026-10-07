@@ -10,6 +10,9 @@ import {
 } from './foods.js';
 import { startScanner } from './scanner.js';
 import { barChart, lineChart, ring } from './charts.js';
+import { parseMeal, matchUnit, queryVariants } from './parse.js';
+import { swipeToDelete, swipeDays, dragToClose } from './gestures.js';
+import { computeSummary, DEFAULT_PREFS, pushSupport, afterChange, enablePush, disablePush, savePrefs, sendTest, checkSubscription } from './notify.js';
 
 let S;
 const ui = { tab: 'diary', date: todayStr(), range: 7, foodsTab: 'foods' };
@@ -23,6 +26,7 @@ const isUS = () => S.profile.units === 'us';
 
 function commit({ silent = false } = {}) {
   store.save(S);
+  afterChange(S);
   if (!silent) renderAll();
 }
 
@@ -185,6 +189,7 @@ function openSheet(spec) {
       </header>
       <div class="sheet-body">${spec.html()}</div>`;
     $('[data-close]', el).onclick = () => closeSheet(s);
+    dragToClose(el, $('.sheet-head', el), () => closeSheet(s));
     spec.bind?.(el, s);
     $('.sheet-body', el).scrollTop = scroll;
   };
@@ -269,8 +274,25 @@ function renderMain() {
   const main = $('#main');
   const views = { diary: diaryView, progress: progressView, foods: foodsView, settings: settingsView };
   main.innerHTML = views[ui.tab]();
+  ui.slide = '';
   $$('#tabbar button').forEach((b) => b.setAttribute('aria-current', b.dataset.tab === ui.tab ? 'page' : 'false'));
   bindMain(main);
+  if (ui.tab === 'diary') {
+    swipeToDelete(main, (id) => {
+      const date = ui.date;
+      const before = dayEntries(date);
+      const e = before.find((x) => x.id === id);
+      removeEntry(date, id);
+      if (e) toast(`Deleted ${e.name}`, { undo: () => { S.diary[date] = before; commit(); } });
+    });
+    swipeDays($('.day-swipe', main), { prev: () => changeDay(-1), next: () => changeDay(1) });
+  }
+}
+
+function changeDay(n) {
+  ui.date = addDays(ui.date, n);
+  ui.slide = n > 0 ? 'day-slide' : 'day-slide from-left';
+  renderMain();
 }
 
 // ----- Diary -----
@@ -299,6 +321,7 @@ function diaryView() {
   const cafLim = caffeineLimit(S);
 
   return `
+  <div class="day-swipe ${ui.slide || ''}">
   <header class="topbar">
     <button type="button" class="icon-btn" data-act="day-prev" aria-label="Previous day">${ICON.chevL}</button>
     <label class="date-pick">
@@ -328,8 +351,10 @@ function diaryView() {
     ${macro('p', 'Protein')}${macro('c', 'Carbs')}${macro('f', 'Fat')}
     <button type="button" class="link small" data-act="nutrients">All nutrients</button>
   </section>
+  </div>
 
   ${MEALS.map((m) => mealCard(d, m)).join('')}
+  ${d === todayStr() ? ideasCard(left, t.p - tot.p) : ''}
 
   <section class="card tracker">
     <div class="tracker-head"><h3>Water</h3><span class="muted">${fmt(cups, 1)} / ${wGoal} cups</span></div>
@@ -379,13 +404,14 @@ function mealCard(d, m) {
       <button type="button" class="icon-btn small" data-act="meal-menu" data-meal="${m.key}" aria-label="${m.label} options">${ICON.more}</button>
     </div>
     ${entries.map((e) => `
+      <div class="swipe"><div class="swipe-bg" aria-hidden="true">Delete</div>
       <button type="button" class="row" data-act="entry" data-id="${e.id}">
         <span class="row-main">
           <span class="row-title">${esc(e.name)}</span>
           <span class="row-sub">${e.brand ? esc(e.brand) + ' · ' : ''}${esc(amountText(e.qty, e.unit))}</span>
         </span>
         <span class="row-kcal">${fmt(e.n.kcal)}</span>
-      </button>`).join('')}
+      </button></div>`).join('')}
     <button type="button" class="add-row" data-act="add-food" data-meal="${m.key}">${ICON.plus}<span>Add food</span></button>
   </section>`;
 }
@@ -435,6 +461,8 @@ function progressView() {
     ${[[7, 'Week'], [30, 'Month'], [90, '3 months']].map(([v, l]) => `<button type="button" role="tab" aria-selected="${ui.range === v}" data-act="range" data-v="${v}">${l}</button>`).join('')}
   </div>
 
+  ${weeklyCard()}
+  ${adaptiveCard()}
   <section class="card">
     <div class="card-head"><h3>Calories</h3><span class="muted">${n > 31 ? 'weekly average' : 'per day'}</span></div>
     ${barChart(bars, t.kcal)}
@@ -488,6 +516,101 @@ function progressView() {
     </div>
   </section>
   <div class="spacer"></div>`;
+}
+
+// ----- Smarter goals -----
+
+// Foods you already eat that fit in what's left today, best protein value first when protein is short.
+function ideasCard(kcalLeft, proteinLeft) {
+  if (kcalLeft < 120) return '';
+  const seen = new Set();
+  const cands = [];
+  const consider = (f) => {
+    if (!f || seen.has(f.id)) return;
+    seen.add(f.id);
+    const a = defaultAmount(f);
+    const g = a.qty * findUnit(f, a.unit).g;
+    const n = scale(f.n, g);
+    if (n.kcal < 40 || n.kcal > kcalLeft + 60) return;
+    cands.push({ f, a, n });
+  };
+  S.favorites.forEach((id) => consider(getFood(id)));
+  Object.values(S.foods).filter((f) => f.source === 'recipe').forEach(consider);
+  S.recents.slice(0, 40).forEach((r) => consider(getFood(r.id)));
+  if (!cands.length) return '';
+  const wantProtein = proteinLeft > 15;
+  cands.sort((x, y) => wantProtein
+    ? y.n.p / y.n.kcal - x.n.p / x.n.kcal
+    : Math.abs(kcalLeft / 2 - x.n.kcal) - Math.abs(kcalLeft / 2 - y.n.kcal));
+  const top = cands.slice(0, 3);
+  return `<section class="card ideas">
+    <div class="card-head"><h3>Ideas for what's left</h3><span class="muted">${fmt(kcalLeft)} kcal${wantProtein ? ` · ${fmt(proteinLeft)} g protein` : ''}</span></div>
+    ${top.map(({ f, a, n }) => `<div class="row-wrap">
+      <button type="button" class="row" data-act="fav-open" data-id="${esc(f.id)}"><span class="row-main"><span class="row-title">${esc(f.name)}</span><span class="row-sub">${esc(amountText(a.qty, a.unit))} · ${fmt(n.p)} g protein</span></span><span class="row-kcal">${fmt(n.kcal)}</span></button>
+      <button type="button" class="quick" data-act="idea-add" data-id="${esc(f.id)}" aria-label="Add ${esc(f.name)}">${ICON.plus}</button></div>`).join('')}
+    <p class="hint">From your favorites, recipes and recent foods.</p>
+  </section>`;
+}
+
+function weeklyCard() {
+  const w = computeSummary(S);
+  if (!w.week.daysLogged) return '';
+  const t = targets(S);
+  const change = w.week.weightChangeKg;
+  return `<section class="card">
+    <div class="card-head"><h3>Last 7 days</h3><span class="muted">${w.week.daysLogged} of 7 logged</span></div>
+    <div class="stats">
+      <div><b>${fmt(w.week.avgKcal)}</b><span>avg kcal (${fmt((w.week.avgKcal / t.kcal) * 100)}% of goal)</span></div>
+      <div><b>${w.week.kcalDays}/${w.week.daysLogged}</b><span>days on target</span></div>
+      <div><b>${w.week.proteinDays}/${w.week.daysLogged}</b><span>protein goal hit</span></div>
+    </div>
+    ${change != null ? `<p class="hint">Weight ${change >= 0 ? 'up' : 'down'} ${weightStr(Math.abs(change))} from a week ago.</p>` : ''}
+  </section>`;
+}
+
+// Real maintenance calories from what was eaten and how weight actually moved:
+// maintenance ≈ average intake − (weight change × 7,700 kcal/kg) ÷ days.
+function adaptiveEstimate() {
+  const end = todayStr();
+  const start = addDays(end, -27);
+  const days = Array.from({ length: 28 }, (_, i) => addDays(start, i)).filter((d) => d < end && dayEntries(d).length);
+  const w = S.weights.filter((x) => x.d >= start);
+  const need = { days: 14, weighs: 2 };
+  if (days.length < need.days || w.length < 2) return { ready: false, days: days.length, weighs: w.length, need };
+  const first = w[0];
+  const last = w[w.length - 1];
+  const span = (parseDate(last.d) - parseDate(first.d)) / 86400000;
+  if (span < 14) return { ready: false, days: days.length, weighs: w.length, need, span };
+  // Smooth each end with nearby weigh-ins so one heavy morning doesn't swing it.
+  const near = (d) => {
+    const pts = w.filter((x) => Math.abs((parseDate(x.d) - parseDate(d)) / 86400000) <= 4);
+    return pts.reduce((a, x) => a + x.kg, 0) / pts.length;
+  };
+  const dKg = near(last.d) - near(first.d);
+  const intake = days.reduce((a, d) => a + dayTotals(d).kcal, 0) / days.length;
+  const maintenance = intake - (dKg * 7700) / span;
+  const factor = GOALS.find((x) => x.key === S.profile.goal)?.factor ?? 1;
+  return { ready: true, intake, dKg, span, maintenance, suggested: Math.round((maintenance * factor) / 10) * 10, days: days.length };
+}
+
+function adaptiveCard() {
+  const a = adaptiveEstimate();
+  if (!a.ready) {
+    return `<section class="card">
+      <div class="card-head"><h3>Smart calorie target</h3><span class="muted">learning</span></div>
+      <p class="hint">After about two weeks of logging plus two weigh-ins at least 14 days apart, Plateful works out the calories your body actually uses and suggests a target. So far: ${a.days}/14 days logged, ${a.weighs} weigh-in${a.weighs === 1 ? '' : 's'}.</p>
+    </section>`;
+  }
+  const t = targets(S);
+  const diff = a.suggested - t.kcal;
+  return `<section class="card">
+    <div class="card-head"><h3>Smart calorie target</h3></div>
+    <p>Over the last ${Math.round(a.span)} days you averaged <b>${fmt(a.intake)}</b> kcal and your weight went ${a.dKg >= 0 ? 'up' : 'down'} ${weightStr(Math.abs(a.dKg))}. That puts your real maintenance at about <b>${fmt(a.maintenance)}</b> kcal.</p>
+    ${Math.abs(diff) >= 50
+      ? `<button type="button" class="btn primary block" data-act="adaptive-apply" data-v="${a.suggested}">Use ${fmt(a.suggested)} kcal as my target</button>
+         <p class="hint">Your current target is ${fmt(t.kcal)}. If you're still growing, some weight gain is normal. Days you forgot to log make this estimate too low.</p>`
+      : `<p class="hint">That matches your current target (${fmt(t.kcal)} kcal), so nothing to change.</p>`}
+  </section>`;
 }
 
 const MEASURES = [['height', 'Height'], ['waist', 'Waist'], ['chest', 'Chest'], ['hips', 'Hips'], ['arm', 'Upper arm'], ['thigh', 'Thigh'], ['neck', 'Neck']];
@@ -593,6 +716,10 @@ function settingsView() {
     <p class="hint">Calories come from the National Academies' Estimated Energy Requirement equations, which for kids and teens include the extra energy needed to grow. If you're under 18, check with your doctor before aiming to lose weight.</p>
   </section>
   <section class="card">
+    <div class="card-head"><h3>Notifications</h3><button type="button" class="btn small" data-act="notifications">${S.settings.push?.on ? 'Edit' : 'Set up'}</button></div>
+    <p class="hint">${S.settings.push?.on ? notifySummary() : 'Get a nudge when a meal hasn\'t been logged or a goal is still open in the evening.'}</p>
+  </section>
+  <section class="card">
     <h3>Data</h3>
     <button type="button" class="row" data-act="export-csv"><span class="row-main"><span class="row-title">Export food diary (CSV)</span><span class="row-sub">Every entry with calories, macros and nutrients</span></span></button>
     <button type="button" class="row" data-act="export-weights"><span class="row-main"><span class="row-title">Export weight and measurements (CSV)</span></span></button>
@@ -615,8 +742,8 @@ function settingsView() {
 // ---------- event binding for the main view ----------
 
 const actions = {
-  'day-prev': () => { ui.date = addDays(ui.date, -1); renderMain(); },
-  'day-next': () => { ui.date = addDays(ui.date, 1); renderMain(); },
+  'day-prev': () => changeDay(-1),
+  'day-next': () => changeDay(1),
   'day-menu': () => dayMenu(),
   'add-food': (el) => openAddFood({ date: ui.date, meal: el.dataset.meal }),
   entry: (el) => {
@@ -672,11 +799,24 @@ const actions = {
   'recipe-edit': (el) => openRecipe(S.foods[el.dataset.id]),
   'meal-new': () => openSavedMeal({ id: uid(), name: '', items: [] }, true),
   'meal-edit': (el) => openSavedMeal(S.meals.find((m) => m.id === el.dataset.id)),
+  'idea-add': (el) => {
+    const f = getFood(el.dataset.id);
+    if (!f) return;
+    const a = defaultAmount(f);
+    logFood(ui.date, f, a.qty, a.unit, defaultMealForNow());
+  },
+  'adaptive-apply': (el) => {
+    const before = S.goals.kcalOverride;
+    S.goals.kcalOverride = Number(el.dataset.v);
+    commit();
+    toast(`Target set to ${fmt(S.goals.kcalOverride)} kcal`, { undo: () => { S.goals.kcalOverride = before; commit(); } });
+  },
   'fav-open': (el) => {
     const f = getFood(el.dataset.id);
     if (f) openFoodDetail(f, { date: ui.date, meal: defaultMealForNow() });
   },
   profile: () => openProfile(),
+  notifications: () => openNotifications(),
   targets: () => openTargets(),
   'export-csv': () => exportDiaryCsv(),
   'export-weights': () => exportWeightsCsv(),
@@ -844,7 +984,7 @@ function saveAsMeal(entries, suggested) {
 
 // opts: { date, meal } to log, or { onPick(food, qty, unit), pickLabel } to choose an ingredient
 function openAddFood(opts) {
-  const st = { q: '', tab: 'recent', online: [], onlineState: 'idle', local: [], token: 0 };
+  const st = { q: opts.q || '', tab: 'recent', online: [], onlineState: 'idle', local: [], token: 0 };
   let timer;
   const picking = !!opts.onPick;
 
@@ -892,6 +1032,7 @@ function openAddFood(opts) {
     const tabs = [['recent', 'Recent'], ['favs', 'Favorites'], ['mine', 'My foods']];
     if (!picking) tabs.push(['meals', 'Meals']);
     return `<div class="seg small" role="tablist">${tabs.map(([v, l]) => `<button type="button" role="tab" aria-selected="${st.tab === v}" data-act="tab" data-v="${v}">${l}</button>`).join('')}</div>
+      ${!picking ? `<button type="button" class="row quickcal describe-row" data-act="describe"><span class="row-main"><span class="row-title">Describe what you ate</span><span class="row-sub">Type or dictate: “2 eggs, toast and a glass of milk”</span></span></button>` : ''}
       ${!picking ? `<button type="button" class="row quickcal" data-act="quick-cal"><span class="row-main"><span class="row-title">Quick add calories</span><span class="row-sub">When you only know the number</span></span></button>` : ''}
       ${body}`;
   };
@@ -969,11 +1110,13 @@ function openAddFood(opts) {
           if (m) logSavedMeal(m, opts.date, opts.meal);
           closeSheet(sheet);
         } else if (act === 'quick-cal') openQuickCalories(opts.date, opts.meal, () => closeSheet(sheet));
+        else if (act === 'describe') openDescribe({ date: opts.date, meal: opts.meal, text: st.q, onDone: () => closeSheet(sheet) });
       };
     },
   });
   sheet.refresh = paint;
   loadLocal();
+  if (st.q) runSearch();
   return sheet;
 }
 
@@ -1012,6 +1155,111 @@ function openQuickCalories(date, meal, done) {
       done?.();
     },
   });
+}
+
+// ---------- Describe a meal in words ----------
+
+async function findFoodFor(query) {
+  const mine = Object.values(S.foods);
+  for (const q of queryVariants(query)) {
+    const hit = searchFoods(mine, q, 1)[0];
+    if (hit) return hit;
+    const local = (await searchLocal(q, 1))[0];
+    if (local) return local;
+  }
+  if (navigator.onLine) {
+    try {
+      return (await searchOff(query))[0] || null;
+    } catch {}
+  }
+  return null;
+}
+
+function openDescribe({ date, meal, text = '', onDone }) {
+  const st = { text, items: [], busy: false, meal, parsed: false };
+  const itemKcal = (it) => (it.food ? (it.food.n.kcal * it.qty * findUnit(it.food, it.unit).g) / 100 : 0);
+  let sheet;
+  const find = async () => {
+    st.busy = true;
+    sheet.render();
+    const parsed = parseMeal(st.text);
+    st.items = await Promise.all(parsed.map(async (p) => {
+      const food = await findFoodFor(p.query);
+      if (!food) return { ...p, food: null };
+      const m = matchUnit(food, p.unit, p.qty, p.explicit);
+      return { ...p, food, qty: m.qty, unit: m.unit, check: !m.exact };
+    }));
+    st.busy = false;
+    st.parsed = true;
+    sheet.render();
+  };
+  sheet = openSheet({
+    title: 'Describe a meal',
+    html: () => {
+      const total = st.items.reduce((a, it) => a + itemKcal(it), 0);
+      const ok = st.items.filter((it) => it.food);
+      return `
+        <div class="field">
+          <label for="desc">What did you eat?</label>
+          <textarea id="desc" rows="3" placeholder="2 eggs, a slice of toast with butter and a glass of milk">${esc(st.text)}</textarea>
+          <p class="hint">Tap the microphone on the keyboard to say it instead. Separate foods with commas or “and”.</p>
+        </div>
+        <button type="button" class="btn ${st.parsed ? '' : 'primary'} block" data-find ${st.busy ? 'disabled' : ''}>${st.busy ? '<span class="spinner"></span> Finding foods…' : st.parsed ? 'Find again' : 'Find foods'}</button>
+        ${st.items.length ? `<h4 class="list-h">Check these</h4>
+          ${st.items.map((it, i) => `
+            <div class="row-wrap">
+              <button type="button" class="row" data-item="${i}">
+                <span class="row-main">
+                  <span class="row-sub">“${esc(it.raw)}”</span>
+                  <span class="row-title">${it.food ? esc(it.food.name) : '<span class="warn-text">No match: tap to search</span>'}</span>
+                  ${it.food ? `<span class="row-sub">${badge(it.food.source)}${esc(amountText(it.qty, it.unit))}${it.check ? ' · <span class="warn-text">check amount</span>' : ''}</span>` : ''}
+                </span>
+                <span class="row-kcal">${it.food ? fmt(itemKcal(it)) : ''}</span>
+              </button>
+              <button type="button" class="quick remove" data-rm="${i}" aria-label="Remove">${ICON.close}</button>
+            </div>`).join('')}
+          <p class="hint">Tap an item to fix the amount or pick a different food.</p>
+          <div class="seg small meal-seg" role="radiogroup" aria-label="Meal">${MEALS.map((m) => `<button type="button" role="radio" aria-checked="${st.meal === m.key}" data-meal="${m.key}">${m.label}</button>`).join('')}</div>
+          <button type="button" class="btn primary block" data-log ${ok.length ? '' : 'disabled'}>Add ${ok.length} item${ok.length === 1 ? '' : 's'} · ${fmt(total)} kcal</button>`
+        : st.parsed ? '<p class="empty">Couldn\'t pick out any foods. Try “2 eggs and toast”.</p>' : ''}`;
+    },
+    bind: (el) => {
+      const ta = $('#desc', el);
+      ta.oninput = () => (st.text = ta.value);
+      if (!st.text) setTimeout(() => ta.focus(), 300);
+      $('[data-find]', el).onclick = () => { if (st.text.trim()) find(); };
+      $$('[data-rm]', el).forEach((b) => (b.onclick = () => { st.items.splice(Number(b.dataset.rm), 1); sheet.render(); }));
+      $$('[data-meal]', el).forEach((b) => (b.onclick = () => { st.meal = b.dataset.meal; sheet.render(); }));
+      $$('[data-item]', el).forEach((b) => (b.onclick = () => {
+        const i = Number(b.dataset.item);
+        const it = st.items[i];
+        const pick = (food, qty, unit) => { st.items[i] = { ...it, food, qty, unit, check: false }; sheet.render(); };
+        if (!it.food) return openAddFood({ q: it.query, pickTitle: 'Pick food', pickLabel: 'Use this', onPick: pick });
+        actionSheet(it.food.name, [
+          { label: 'Change amount', run: () => openFoodDetail(it.food, { qty: it.qty, unit: it.unit, pickLabel: 'Update', onPick: pick }) },
+          { label: 'Pick a different food', run: () => openAddFood({ q: it.query, pickTitle: 'Pick food', pickLabel: 'Use this', onPick: pick }) },
+        ]);
+      }));
+      const log = $('[data-log]', el);
+      if (log) log.onclick = () => {
+        const added = [];
+        for (const it of st.items) {
+          if (!it.food) continue;
+          rememberFood(it.food);
+          const e = makeEntry(it.food, it.qty, it.unit, st.meal);
+          (S.diary[date] ||= []).push(e);
+          bumpRecent(it.food, it.qty, e.unit);
+          added.push(e.id);
+        }
+        commit();
+        const ids = new Set(added);
+        toast(`Added ${added.length} item${added.length === 1 ? '' : 's'} to ${mealLabel(st.meal)}`, { undo: () => { S.diary[date] = dayEntries(date).filter((e) => !ids.has(e.id)); commit(); } });
+        closeSheet(sheet);
+        onDone?.();
+      };
+    },
+  });
+  if (st.text.trim()) find();
 }
 
 // ---------- Food detail / amount picker ----------
@@ -1684,6 +1932,114 @@ function openTargets() {
   });
 }
 
+// ---------- Notifications ----------
+
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function fmtTime(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+function notifySummary() {
+  const p = S.settings.push.prefs;
+  const on = [];
+  if (p.meals.on) on.push('meal reminders');
+  if (p.goal.on) on.push(`goal check at ${fmtTime(p.goal.time)}`);
+  if (p.weigh.on) on.push(`weigh-in on ${DAYS[p.weigh.day]}s`);
+  if (p.weekly.on) on.push('weekly summary');
+  return on.length ? `On: ${on.join(', ')}.` : 'On, but every reminder is switched off.';
+}
+
+function openNotifications() {
+  const push = () => S.settings.push || { on: false, badge: true, prefs: structuredClone(DEFAULT_PREFS) };
+  const st = { prefs: structuredClone(push().prefs || DEFAULT_PREFS), busy: false, msg: '' };
+  const sup = pushSupport();
+  const timeInput = (name, v) => `<input type="time" name="${name}" value="${v}">`;
+  const dayInput = (name, v) => `<select name="${name}">${DAYS.map((d, i) => `<option value="${i}" ${i === v ? 'selected' : ''}>${d}</option>`).join('')}</select>`;
+  const toggle = (name, on, label, hint) => `<label class="switch-row"><span><b>${label}</b><small>${hint}</small></span><input type="checkbox" role="switch" name="${name}" ${on ? 'checked' : ''}></label>`;
+
+  let sheet;
+  sheet = openSheet({
+    title: 'Notifications',
+    html: () => {
+      const p = st.prefs;
+      const on = push().on;
+      if (!sup.ok) {
+        return `<section class="card notice"><b>${sup.reason === 'install' ? 'Install Plateful first' : 'Not available here'}</b>
+          <p>${sup.reason === 'install' ? 'iPhone only sends notifications to apps on the Home Screen. In Safari tap Share › Add to Home Screen, open Plateful from the new icon, then come back here.' : 'This browser can\'t receive notifications. On iPhone, use the Home Screen app (iOS 16.4 or newer).'}</p></section>`;
+      }
+      return `
+        ${st.msg ? `<p class="hint ${st.msgBad ? 'warn-text' : ''}">${esc(st.msg)}</p>` : ''}
+        ${on ? '' : `<button type="button" class="btn primary block" data-enable ${st.busy ? 'disabled' : ''}>${st.busy ? 'Turning on…' : 'Turn on notifications'}</button>
+          <p class="hint">iPhone will ask for permission. Reminders only go out when something is still missing: a meal you haven't logged, or goals that are still open in the evening.</p>`}
+        <form class="form notif-form" ${on ? '' : 'hidden'}>
+          <section class="card">
+            ${toggle('goal-on', p.goal.on, 'Evening goal check', 'Calories, protein or water still short')}
+            <div class="field inline"><label>Time</label>${timeInput('goal-time', p.goal.time)}</div>
+          </section>
+          <section class="card">
+            ${toggle('meals-on', p.meals.on, 'Meal reminders', 'Only if that meal has nothing logged')}
+            <div class="field inline"><label>Breakfast</label>${timeInput('meals-breakfast', p.meals.breakfast)}</div>
+            <div class="field inline"><label>Lunch</label>${timeInput('meals-lunch', p.meals.lunch)}</div>
+            <div class="field inline"><label>Dinner</label>${timeInput('meals-dinner', p.meals.dinner)}</div>
+          </section>
+          <section class="card">
+            ${toggle('weigh-on', p.weigh.on, 'Weekly weigh-in', 'Skipped if you weighed in this week')}
+            <div class="field inline"><label>Day</label>${dayInput('weigh-day', p.weigh.day)}</div>
+            <div class="field inline"><label>Time</label>${timeInput('weigh-time', p.weigh.time)}</div>
+          </section>
+          <section class="card">
+            ${toggle('weekly-on', p.weekly.on, 'Weekly summary', 'Average calories, protein days, weight change')}
+            <div class="field inline"><label>Day</label>${dayInput('weekly-day', p.weekly.day)}</div>
+            <div class="field inline"><label>Time</label>${timeInput('weekly-time', p.weekly.time)}</div>
+          </section>
+          <section class="card">
+            ${toggle('badge', push().badge !== false, 'App icon badge', 'Number of today\'s goals still open')}
+          </section>
+          <button class="btn primary block" type="submit" ${st.busy ? 'disabled' : ''}>Save</button>
+          <button type="button" class="btn block" data-test>Send a test notification</button>
+          <button type="button" class="btn danger block" data-disable>Turn off notifications</button>
+        </form>`;
+    },
+    bind: (el) => {
+      const run = async (fn, okMsg) => {
+        st.busy = true; st.msg = ''; sheet.render();
+        try {
+          await fn();
+          st.msg = okMsg || ''; st.msgBad = false;
+        } catch (e) {
+          st.msg = e.message; st.msgBad = true;
+        }
+        st.busy = false;
+        commit();
+        sheet.render();
+      };
+      const en = $('[data-enable]', el);
+      if (en) en.onclick = () => run(() => enablePush(S), 'Notifications are on. Adjust the times below.');
+      const form = $('.notif-form', el);
+      if (!form) return;
+      const read = () => {
+        const v = (n) => form.elements[n];
+        st.prefs = {
+          goal: { on: v('goal-on').checked, time: v('goal-time').value || '19:30' },
+          meals: { on: v('meals-on').checked, breakfast: v('meals-breakfast').value || '09:30', lunch: v('meals-lunch').value || '13:30', dinner: v('meals-dinner').value || '19:00' },
+          weigh: { on: v('weigh-on').checked, day: Number(v('weigh-day').value), time: v('weigh-time').value || '08:00' },
+          weekly: { on: v('weekly-on').checked, day: Number(v('weekly-day').value), time: v('weekly-time').value || '18:00' },
+        };
+        S.settings.push = { ...push(), badge: v('badge').checked };
+      };
+      form.onsubmit = (ev) => {
+        ev.preventDefault();
+        read();
+        run(() => savePrefs(S, st.prefs), 'Saved.');
+      };
+      $('[data-test]', el).onclick = () => run(() => sendTest(S), 'Sent. It should arrive in a few seconds.');
+      $('[data-disable]', el).onclick = () => run(() => disablePush(S), 'Notifications are off.');
+    },
+  });
+}
+
 // ---------- Export ----------
 
 function csvCell(v) {
@@ -1731,6 +2087,14 @@ async function shareFile(name, text, type) {
 
 // ---------- boot ----------
 
+function openDeepLink(go) {
+  if (go === 'progress') ui.tab = 'progress';
+  if (go === 'weigh') {
+    ui.tab = 'progress';
+    setTimeout(() => openWeight(), 50);
+  }
+}
+
 async function boot() {
   S = await store.load();
   store.requestPersistence();
@@ -1743,13 +2107,32 @@ async function boot() {
     renderMain();
     window.scrollTo(0, 0);
   };
+  const go = new URLSearchParams(location.search).get('go');
+  if (go) {
+    history.replaceState(null, '', location.pathname);
+    openDeepLink(go);
+  }
   renderMain();
   if (!S.settings.onboarded) openProfile(true);
+  afterChange(S);
+  checkSubscription(S).then(() => store.save(S));
+  navigator.serviceWorker?.addEventListener('message', (ev) => {
+    if (ev.data?.type !== 'open') return;
+    const g = new URL(ev.data.url).searchParams.get('go');
+    closeAllSheets();
+    ui.date = todayStr();
+    ui.tab = 'diary';
+    if (g) openDeepLink(g);
+    renderMain();
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
       store.flush();
       ui.wasToday = ui.date === todayStr();
-    } else if (ui.wasToday && ui.date !== todayStr()) {
+    } else {
+      afterChange(S);
+    }
+    if (document.visibilityState === 'visible' && ui.wasToday && ui.date !== todayStr()) {
       // Reopened the app on a new day: follow it, unless a past day was being edited.
       ui.date = todayStr();
       renderMain();

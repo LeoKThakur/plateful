@@ -1,4 +1,4 @@
-"""Build data/fndds.json, the offline generic-food database, from USDA FNDDS 2021-2023.
+"""Build public/data/fndds.json, the offline generic-food database, from USDA FNDDS 2021-2023.
 
 Usage: python3 tools/build_fndds.py path/to/surveyDownload.json
 Source: https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_survey_food_json_2024-10-31.zip
@@ -32,5 +32,5 @@ for food in src:
     })
 
 json.dump({"keys": KEYS, "source": "USDA FNDDS 2021-2023", "foods": out},
-          open("data/fndds.json", "w"), separators=(",", ":"))
+          open("public/data/fndds.json", "w"), separators=(",", ":"))
 print(len(out), "foods")

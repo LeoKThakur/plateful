@@ -1,11 +1,22 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "plateful",
+  "main": "worker/index.js",
   "compatibility_date": "2026-10-06",
-  "observability": {
-    "enabled": true
-  },
+  "observability": { "enabled": true },
   "assets": {
-    "directory": "."
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "plateful", "database_id": "7ca855a7-2416-4e57-86bb-52b13717fbf0" }
+  ],
+  // Checks every 15 minutes whose reminders are due (free tier allows this).
+  "triggers": { "crons": ["*/15 * * * *"] },
+  "vars": {
+    "VAPID_PUBLIC": "BDIJZIJBYIjI-0h9mzsALMqIF7BsAasi_g0gKbpKL4p1-Q5bT7YapJexnS8H4ugl67sGiLSRvlYXTCZwkDzmTSI",
+    "VAPID_SUBJECT": "https://plateful.leokthakur.workers.dev"
   }
+  // Secret (wrangler secret put VAPID_PRIVATE_JWK): the private key as a JWK JSON string.
 }
