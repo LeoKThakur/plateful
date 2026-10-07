@@ -305,7 +305,7 @@ details summary::-webkit-details-marker { display: none; }
 .field input.has-unit { padding-right: 52px; }
 .field .unit { position: absolute; right: 12px; top: 33px; color: var(--ink-3); font-size: 15px; pointer-events: none; }
 .field.check { flex-direction: row; align-items: center; gap: 10px; font-size: 16px; }
-.field.check input { width: 22px; height: 22px; accent-color: var(--accent); }
+.field.check input { width: 22px; height: 22px; min-height: 0; padding: 0; flex: none; -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); }
 .field input[type="date"] { min-height: 46px; display: block; }
 
 /* ---- add food ---- */

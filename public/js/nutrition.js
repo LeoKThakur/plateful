@@ -96,15 +96,37 @@ export function targets(state) {
   const factor = GOALS.find((x) => x.key === pr.goal)?.factor ?? 1;
   const estimate = est ? Math.round((est * factor) / 10) * 10 : null;
   const kcal = g.kcalOverride || estimate || 2000;
-  let p, c, f;
+  let p, c, f, auto = null;
   if (g.macroMode === 'g' && g.grams.p != null) {
     ({ p, c, f } = g.grams);
-  } else {
+  } else if (g.macroMode === 'pct') {
     p = Math.round((kcal * g.pct.p) / 100 / 4);
     c = Math.round((kcal * g.pct.c) / 100 / 4);
     f = Math.round((kcal * g.pct.f) / 100 / 9);
+  } else {
+    auto = autoMacros({ age, kg: latestWeight(state), activity: pr.activity, goal: pr.goal, kcal });
+    ({ p, c, f } = auto);
   }
-  return { kcal, p, c, f, estimate, source: g.kcalOverride ? 'manual' : estimate ? 'calculated' : 'default' };
+  return { kcal, p, c, f, auto, estimate, source: g.kcalOverride ? 'manual' : estimate ? 'calculated' : 'default' };
+}
+
+// Default macros. Protein follows body weight, not calories: the DRI RDA per kg for the age
+// group, raised for regular hard training (sports-nutrition guidance for young athletes is
+// about 1.2–1.6 g/kg). Fat takes the middle of the recommended range for the age group
+// (AMDR: 30–40% at ages 1–3, 25–35% at 4–18, 20–35% for adults), and carbs fill the rest.
+export function autoMacros({ age, kg, activity, goal, kcal }) {
+  const a = age ?? 30;
+  const rda = a <= 3 ? 1.05 : a <= 13 ? 0.95 : a <= 18 ? 0.85 : 0.8;
+  let perKg = activity === 'very' ? 1.4 : activity === 'active' ? 1.1 : rda;
+  perKg = Math.max(rda, perKg + (goal === 'gain' ? 0.2 : 0));
+  const fatPct = a <= 3 ? 35 : 30;
+  perKg = Math.round(perKg * 100) / 100;
+  // Never below the bottom of the recommended range (10% of calories from age 4, 5% at 1–3).
+  const floor = (kcal * (a <= 3 ? 0.05 : 0.1)) / 4;
+  const p = Math.round(Math.max(kg ? kg * perKg : (kcal * 0.15) / 4, floor));
+  const f = Math.round((kcal * fatPct) / 100 / 9);
+  const c = Math.max(0, Math.round((kcal - p * 4 - f * 9) / 4));
+  return { p, c, f, perKg: kg ? Math.round((p / kg) * 10) / 10 : null, fatPct };
 }
 
 // Daily reference values for the micronutrients we show, by age and sex (DRI RDA/AI;

@@ -742,7 +742,7 @@ function settingsView() {
     <dl class="kv">
       <div><dt>Calories</dt><dd>${fmt(t.kcal)} kcal <small class="muted">${t.source === 'manual' ? 'set by you' : t.source === 'calculated' ? 'calculated' : 'default; add profile details'}</small></dd></div>
       ${t.estimate && t.source === 'manual' ? `<div><dt>Calculated</dt><dd>${fmt(t.estimate)} kcal</dd></div>` : ''}
-      <div><dt>Protein</dt><dd>${fmt(t.p)} g</dd></div>
+      <div><dt>Protein</dt><dd>${fmt(t.p)} g${t.auto?.perKg ? ` <small class="muted">${t.auto.perKg} g/kg body weight</small>` : ''}</dd></div>
       <div><dt>Carbs</dt><dd>${fmt(t.c)} g</dd></div>
       <div><dt>Fat</dt><dd>${fmt(t.f)} g</dd></div>
       <div><dt>Water</dt><dd>${waterGoalCups(S)} cups</dd></div>
@@ -1970,6 +1970,9 @@ function openProfile(first = false) {
 function openTargets() {
   const g = S.goals;
   const t = targets(S);
+  const macroMode = ['auto', 'pct', 'g'].includes(g.macroMode) ? g.macroMode : 'auto';
+  // What Automatic gives, even while another mode is selected.
+  const autoTargets = () => targets({ ...S, goals: { ...g, macroMode: 'auto' } }).auto;
   const sheet = openSheet({
     title: 'Daily targets',
     html: () => `
@@ -1980,15 +1983,27 @@ function openTargets() {
         </div>
         <div class="field"><label>Macros as</label>
           <div class="seg small" role="radiogroup">
-            <button type="button" role="radio" aria-checked="${g.macroMode !== 'g'}" data-mode="pct">% of calories</button>
-            <button type="button" role="radio" aria-checked="${g.macroMode === 'g'}" data-mode="g">Grams</button>
+            <button type="button" role="radio" aria-checked="${macroMode === 'auto'}" data-mode="auto">Automatic</button>
+            <button type="button" role="radio" aria-checked="${macroMode === 'pct'}" data-mode="pct">% of calories</button>
+            <button type="button" role="radio" aria-checked="${macroMode === 'g'}" data-mode="g">Grams</button>
           </div>
         </div>
-        <div class="macro-inputs" data-for="pct" ${g.macroMode === 'g' ? 'hidden' : ''}>
+        <div class="macro-inputs" data-for="auto" ${macroMode === 'auto' ? '' : 'hidden'}>
+          ${(() => {
+            const a = autoTargets();
+            return `<dl class="kv">
+              <div><dt>Protein</dt><dd>${fmt(a.p)} g${a.perKg ? ` <small class="muted">${a.perKg} g per kg</small>` : ''}</dd></div>
+              <div><dt>Carbs</dt><dd>${fmt(a.c)} g <small class="muted">the rest</small></dd></div>
+              <div><dt>Fat</dt><dd>${fmt(a.f)} g <small class="muted">${a.fatPct}% of calories</small></dd></div>
+            </dl>
+            <p class="hint">Protein comes from your body weight, age and activity level, not your calories: ${a.perKg ? `${a.perKg} g per kg for you` : 'log a weight to get this'}, and never under 10% of calories. Fat is ${a.fatPct}% of calories, and carbs make up the rest, which matters most for energy in sport.</p>`;
+          })()}
+        </div>
+        <div class="macro-inputs" data-for="pct" ${macroMode === 'pct' ? '' : 'hidden'}>
           ${[['p', 'Protein'], ['c', 'Carbs'], ['f', 'Fat']].map(([k, l]) => `<div class="field"><label for="pct-${k}">${l}</label><input id="pct-${k}" name="pct-${k}" inputmode="decimal" class="has-unit" value="${g.pct[k]}"><span class="unit">%</span></div>`).join('')}
           <p class="hint pct-sum"></p>
         </div>
-        <div class="macro-inputs" data-for="g" ${g.macroMode === 'g' ? '' : 'hidden'}>
+        <div class="macro-inputs" data-for="g" ${macroMode === 'g' ? '' : 'hidden'}>
           ${[['p', 'Protein'], ['c', 'Carbs'], ['f', 'Fat']].map(([k, l]) => `<div class="field"><label for="g-${k}">${l}</label><input id="g-${k}" name="g-${k}" inputmode="decimal" class="has-unit" value="${g.grams[k] ?? t[k]}"><span class="unit">g</span></div>`).join('')}
         </div>
         <p class="hint">Recommended ranges for ages 4–18: protein 10–30%, carbs 45–65%, fat 25–35%.</p>
@@ -2000,7 +2015,7 @@ function openTargets() {
       </form>`,
     bind: (el) => {
       $('[data-micro-goals]', el).onclick = () => openNutrientGoals();
-      let mode = g.macroMode === 'g' ? 'g' : 'pct';
+      let mode = macroMode;
       const sum = () => {
         const s = ['p', 'c', 'f'].reduce((a, k) => a + (num($(`[name=pct-${k}]`, el).value) || 0), 0);
         const out = $('.pct-sum', el);
@@ -2022,7 +2037,7 @@ function openTargets() {
         g.kcalOverride = num(f.kcal.value) || null;
         g.macroMode = mode;
         if (mode === 'pct') for (const k of ['p', 'c', 'f']) g.pct[k] = num(f[`pct-${k}`].value) || 0;
-        else for (const k of ['p', 'c', 'f']) g.grams[k] = num(f[`g-${k}`].value) || 0;
+        if (mode === 'g') for (const k of ['p', 'c', 'f']) g.grams[k] = num(f[`g-${k}`].value) || 0;
         g.waterCups = num(f.water.value) || null;
         g.addExercise = f.addEx.checked;
         commit();

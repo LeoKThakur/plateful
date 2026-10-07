@@ -17,7 +17,7 @@ export function defaultState() {
     profile: { name: '', sex: 'm', birth: '', heightCm: null, activity: 'low', goal: 'maintain', units: 'us' },
     goals: {
       kcalOverride: null,
-      macroMode: 'pct',
+      macroMode: 'auto', // 'auto' (protein by body weight), 'pct', or 'g'
       pct: { p: 20, c: 50, f: 30 },
       grams: { p: null, c: null, f: null },
       waterCups: null,
@@ -67,6 +67,10 @@ export function migrate(saved) {
   const base = defaultState();
   const out = { ...base, ...saved };
   for (const k of ['profile', 'goals', 'settings']) out[k] = { ...base[k], ...(saved[k] || {}) };
+  // Early versions defaulted to a fixed 20/50/30 split, which overstates protein for kids.
+  // Anyone still on that untouched default moves to the weight-based one.
+  const g = out.goals;
+  if (g.macroMode === 'pct' && g.pct?.p === 20 && g.pct?.c === 50 && g.pct?.f === 30) g.macroMode = 'auto';
   return out;
 }
 
