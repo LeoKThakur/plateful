@@ -9,13 +9,17 @@ const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
     try {
       if (url.pathname === '/api/vapid' && req.method === 'GET') return json({ key: env.VAPID_PUBLIC });
+      if (url.pathname === '/api/food-search' && req.method === 'GET') return foodSearch(url.searchParams.get('q') || '', ctx);
       if (req.method !== 'POST') return json({ error: 'method' }, 405);
-      const body = await req.json();
+      // Real requests are a few hundred bytes; refuse anything large.
+      const text = await req.text();
+      if (text.length > 8192) return json({ error: 'too large' }, 413);
+      const body = JSON.parse(text);
       const endpoint = body.subscription?.endpoint || body.endpoint;
       if (!validEndpoint(endpoint)) return json({ error: 'bad endpoint' }, 400);
       const id = await sha256(endpoint);
@@ -59,6 +63,51 @@ export default {
     ctx.waitUntil(runReminders(env));
   },
 };
+
+// ---------- branded food search ----------
+// Open Food Facts' search service is fast and reliable but has no CORS headers, and their
+// older endpoint fails often under load. So the app searches through here; results are
+// cached for a day at Cloudflare's edge, shared by everyone searching the same words.
+
+const OFF_SEARCH = 'https://search.openfoodfacts.org/search';
+const OFF_FIELDS = 'code,product_name,generic_name,brands,nutriments,serving_quantity,serving_size';
+
+async function offQuery(q) {
+  const params = new URLSearchParams({ q, page_size: '25', fields: OFF_FIELDS, langs: 'en' });
+  const r = await fetch(`${OFF_SEARCH}?${params}`, { headers: { 'User-Agent': 'Plateful/1.0 (https://plateful.leokthakur.workers.dev)' } });
+  if (!r.ok) throw new Error(`Open Food Facts ${r.status}`);
+  return (await r.json()).hits || [];
+}
+
+async function foodSearch(raw, ctx) {
+  // Plain words only, so nobody can inject search syntax.
+  const words = raw.toLowerCase().replace(/[^\p{L}\p{N}%' ]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (words.length < 2) return json({ products: [] });
+  const cacheKey = new Request(`https://cache.plateful/food-search/v2?q=${encodeURIComponent(words)}`);
+  const cache = caches.default;
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
+
+  // US products first; fill up with worldwide matches when the US list is short.
+  // Parentheses break their parser, so join terms with AND; drop words it reads as operators.
+  const terms = words.split(' ').filter((w) => !['and', 'or', 'not', 'to'].includes(w));
+  if (!terms.length) return json({ products: [] });
+  const [us, all] = await Promise.allSettled([offQuery(`${terms.join(' AND ')} AND countries_tags:"en:united-states"`), offQuery(terms.join(' '))]);
+  if (us.status === 'rejected' && all.status === 'rejected') return json({ error: 'search unavailable' }, 502);
+  const seen = new Set();
+  const products = [];
+  for (const h of [...(us.value || []), ...(all.value || [])]) {
+    if (!h.code || seen.has(h.code)) continue;
+    seen.add(h.code);
+    products.push(h);
+    if (products.length >= 25) break;
+  }
+  const res = new Response(JSON.stringify({ products }), {
+    headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=86400' },
+  });
+  ctx.waitUntil(cache.put(cacheKey, res.clone()));
+  return res;
+}
 
 // ---------- validation ----------
 

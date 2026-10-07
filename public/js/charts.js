@@ -17,7 +17,8 @@ function axis(lo, hi, step, y) {
   for (let v = lo; v <= hi + 1e-9; v += step) {
     const yy = y(v);
     out += `<line x1="${PAD.l}" x2="${W - PAD.r}" y1="${yy}" y2="${yy}" class="grid"/>`;
-    out += `<text x="${PAD.l - 5}" y="${yy + 3.5}" class="tick" text-anchor="end">${Math.round(v * 10) / 10}</text>`;
+    const dp = step >= 1 ? 0 : Math.min(2, Math.ceil(-Math.log10(step)));
+    out += `<text x="${PAD.l - 5}" y="${yy + 3.5}" class="tick" text-anchor="end">${v.toFixed(dp)}</text>`;
   }
   return out;
 }
@@ -52,7 +53,9 @@ export function barChart(bars, target, { title = 'Calories by day' } = {}) {
 export function lineChart(points, { unit = '', title = 'Trend' } = {}) {
   if (!points.length) return '';
   const vals = points.map((p) => p.value);
-  const { lo, hi, step } = niceRange(Math.min(...vals), Math.max(...vals));
+  const mid = (Math.min(...vals) + Math.max(...vals)) / 2;
+  const spread = Math.max(Math.max(...vals) - Math.min(...vals), 2);
+  const { lo, hi, step } = niceRange(mid - spread / 2, mid + spread / 2);
   const t0 = points[0].t;
   const t1 = points[points.length - 1].t;
   const iw = W - PAD.l - PAD.r;

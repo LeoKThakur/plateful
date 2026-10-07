@@ -3,20 +3,23 @@
   --card: #ffffff;
   --ink: #1d1c1a;
   --ink-2: #6b6862;
-  --ink-3: #9d9a93;
+  --ink-3: #716d66;
   --line: #e6e4dd;
   --fill: #eceae4;
   --accent: #1f7a4d;
   --accent-ink: #ffffff;
   --accent-soft: #e3f1e9;
   --over: #d8572a;
-  --warn: #b26a00;
+  --warn: #8a5200;
   --warn-soft: #fbefd9;
   --danger: #c8372d;
   --p: #3b6fe0;
   --c: #d99a17;
   --f: #c2557a;
   --shadow: 0 1px 2px rgb(30 25 15 / 0.05);
+  --toast-bg: #1d1c1a;
+  --toast-ink: #f2f1ec;
+  --toast-action: #7fd8a6;
   --radius: 16px;
   --tabbar-h: 58px;
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -30,7 +33,7 @@
     --card: #1b1b19;
     --ink: #f1efe9;
     --ink-2: #a8a49b;
-    --ink-3: #75726b;
+    --ink-3: #9b978f;
     --line: #2c2b28;
     --fill: #2a2926;
     --accent: #47b67c;
@@ -44,6 +47,9 @@
     --c: #e9b23e;
     --f: #e07a9d;
     --shadow: none;
+    --toast-bg: #f1efe9;
+    --toast-ink: #1d1c1a;
+    --toast-action: #1a6a42;
   }
 }
 
@@ -60,7 +66,7 @@ body {
 body.has-sheet { overflow: hidden; }
 h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
 h1 { font-size: 30px; letter-spacing: -0.02em; }
-h3 { font-size: 17px; }
+h3, .card h2, .food-head h2 { font-size: 17px; }
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 svg { stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -97,9 +103,9 @@ small { font-size: 12px; }
   background: var(--card); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; box-shadow: var(--shadow);
 }
 .card.inset { background: var(--bg); box-shadow: none; }
-.card > h3 { margin-bottom: 8px; }
+.card > h3, .card > h2 { margin-bottom: 8px; }
 .card-head, .tracker-head, .meal-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.card-head h3, .tracker-head h3, .meal-head h3 { flex: 1; }
+.card-head h2, .tracker-head h2, .meal-head h2 { flex: 1; }
 .notice { background: var(--accent-soft); }
 .notice p { margin: 4px 0 0; color: var(--ink-2); font-size: 15px; }
 .hint { font-size: 13px; color: var(--ink-2); margin: 6px 0 0; }
@@ -314,7 +320,7 @@ details summary::-webkit-details-marker { display: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---- food detail ---- */
-.food-head h3 { font-size: 22px; line-height: 1.25; }
+.food-head h2 { font-size: 22px; line-height: 1.25; }
 .food-head p { margin: 4px 0 0; }
 .amount { display: flex; gap: 10px; margin-top: 16px; }
 .amount .field:first-child { width: 96px; flex: none; }
@@ -351,11 +357,11 @@ details summary::-webkit-details-marker { display: none; }
 #toast {
   position: fixed; left: 50%; bottom: calc(var(--tabbar-h) + var(--safe-b) + 12px); transform: translate(-50%, 20px); z-index: 40;
   display: flex; align-items: center; gap: 14px; max-width: calc(100% - 32px); padding: 11px 16px; border-radius: 14px;
-  background: var(--ink); color: var(--bg); font-size: 15px; opacity: 0; pointer-events: none; transition: 0.22s ease;
+  background: var(--toast-bg); color: var(--toast-ink); font-size: 15px; opacity: 0; pointer-events: none; transition: 0.22s ease;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
 #toast span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#toast button { border: 0; background: none; color: var(--accent); font-weight: 700; padding: 0; filter: brightness(1.3); }
+#toast button { border: 0; background: none; color: var(--toast-action); font-weight: 700; padding: 0; }
 body.has-sheet #toast { bottom: calc(var(--safe-b) + 16px); }
 .more-fields .form { margin-top: 8px; }
 
@@ -407,3 +413,6 @@ html, button, input, select { touch-action: manipulation; }
 .field textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .meal-head + .swipe .row { border-top: 0; }
 .describe-row .row-title { color: var(--accent); font-weight: 600; }
+.hint a { color: var(--accent); }
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

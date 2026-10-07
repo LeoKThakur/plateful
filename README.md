@@ -5,10 +5,36 @@ A private calorie and nutrition tracker for iPhone, built as an installable web 
 
 Live: https://plateful.leokthakur.workers.dev
 
+<p>
+  <img src="docs/screenshots/1-diary.png" width="200" alt="Diary with calories left, macros and meals">
+  <img src="docs/screenshots/3-search.png" width="200" alt="Food search with offline USDA results">
+  <img src="docs/screenshots/4-food.png" width="200" alt="Food detail with amount, unit and nutrition">
+  <img src="docs/screenshots/5-describe.png" width="200" alt="Describe a meal in words">
+</p>
+<p>
+  <img src="docs/screenshots/2-meals.png" width="200" alt="Ideas for what's left and water tracker">
+  <img src="docs/screenshots/6-progress.png" width="200" alt="Weekly summary, smart calorie target and calorie chart">
+  <img src="docs/screenshots/7-weight.png" width="200" alt="Macros, weight trend and body measurements">
+  <img src="docs/screenshots/8-notifications.png" width="200" alt="Notification settings">
+</p>
+
+Screenshots use made-up demo data.
+
+## Features
+- Food diary by meal with calories left, macros, vitamins and minerals
+- About 5,400 USDA foods built in (works offline), brands and barcodes via Open Food Facts
+- Barcode scanner, custom foods, recipes, saved meals, favorites, one-tap re-logging, copy meal or day
+- Describe a meal in words ("2 eggs and toast"), parsed on the phone
+- Calorie target from age, sex, height, weight and activity (growth-aware for kids and teens), plus a smart target from your real weight trend
+- Weight, body measurements, water, caffeine and exercise tracking with charts
+- Push reminders for unlogged meals and unmet goals, weekly summary, app-icon badge
+- CSV export, full backup and restore, delete everything
+
 ## Layout
 - `public/`: the app (static files served as-is)
 - `worker/`: Cloudflare Worker that serves `public/` and runs push reminders
 - `tools/`: data build scripts
+- `docs/screenshots/`: README images
 
 ## Run locally
     npx wrangler d1 execute plateful --local --file worker/schema.sql   # once

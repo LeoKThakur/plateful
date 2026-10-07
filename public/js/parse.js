@@ -22,6 +22,7 @@ const UNITS = {
   small: ['small'], medium: ['medium'], large: ['large'],
 };
 const UNIT_GRAMS = { oz: 28.3495, g: 1, lb: 453.6 };
+const VOLUME = { cup: 240, 'fl oz': 30, tablespoon: 15, teaspoon: 5 }; // ml
 
 const NUM = String.raw`(\d+\s+\d+\/\d+|\d+\/\d+|\d*\.\d+|\d+)`;
 
@@ -95,6 +96,18 @@ export function matchUnit(food, unitWord, qty, explicit = true) {
     const key = UNITS[unitWord][0];
     if (key === 'lb') return { unit: 'oz', qty: qty * 16, exact: true };
     return { unit: key, qty, exact: true };
+  }
+  if (unitWord && VOLUME[UNITS[unitWord]?.[0]]) {
+    // Volumes convert into each other: a glass of juice listed only in fl oz is 8 fl oz.
+    const want = UNITS[unitWord][0];
+    const wantMl = qty * VOLUME[want];
+    const options = units.map((u) => {
+      const m = u.label.toLowerCase().match(/^(cup|fl oz|tablespoon|teaspoon)\b/);
+      return m && { unit: u.label, qty: Math.round((wantMl / VOLUME[m[1]]) * 100) / 100, exact: m[1] === want };
+    }).filter(Boolean);
+    // The same unit if listed, otherwise whichever gives the most natural number (2 tsp -> 2/3 tbsp, not 0.04 cup).
+    const best = options.find((o) => o.exact) || options.sort((x, y) => Math.abs(Math.log(x.qty)) - Math.abs(Math.log(y.qty)))[0];
+    if (best) return best;
   }
   if (unitWord) {
     for (const want of UNITS[unitWord] || [unitWord]) {

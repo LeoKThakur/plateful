@@ -128,15 +128,17 @@ async function getJson(url, ms = 9000) {
   }
 }
 
-// search.openfoodfacts.org doesn't send CORS headers, so use the classic search endpoint.
-// US products first (most scanned first), then worldwide if nothing matches.
+// Brand search goes through Plateful's server (worker/index.js), which relays Open Food Facts'
+// search service and caches results. If that's unreachable, query Open Food Facts directly.
 export async function searchOff(q) {
-  const base = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&json=1&page_size=25&sort_by=unique_scans_n&fields=${OFF_FIELDS}`;
-  // Their servers sometimes reject a request under load (with no CORS header); one retry usually works.
-  const get = (url) => getJson(url, 12000).catch(() => new Promise((r) => setTimeout(r, 1500)).then(() => getJson(url, 12000)));
-  let d = await get(`${base}&tagtype_0=countries&tag_contains_0=contains&tag_0=united-states`);
-  if (!d.products?.length) d = await get(base);
-  return (d.products || []).map((p) => fromOff(p, p.code)).filter(Boolean);
+  try {
+    const d = await getJson(`/api/food-search?q=${encodeURIComponent(q)}`, 12000);
+    return (d.products || []).map((p) => fromOff(p, p.code)).filter(Boolean);
+  } catch {
+    const url = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&json=1&page_size=25&fields=${OFF_FIELDS}`;
+    const d = await getJson(url, 12000);
+    return (d.products || []).map((p) => fromOff(p, p.code)).filter(Boolean);
+  }
 }
 
 export async function offBarcode(code) {

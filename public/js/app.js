@@ -171,6 +171,7 @@ function toast(msg, { undo } = {}) {
 // ---------- sheets (modal stack) ----------
 
 const sheets = [];
+let sheetSeq = 0;
 
 // spec: { title, html(): string, bind(el), refresh?, wide?, onClose? , left?: html, right?: html }
 function openSheet(spec) {
@@ -178,13 +179,15 @@ function openSheet(spec) {
   el.className = 'sheet';
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-modal', 'true');
+  const titleId = `sheet-title-${++sheetSeq}`;
+  el.setAttribute('aria-labelledby', titleId);
   const s = { ...spec, el };
   s.render = () => {
     const scroll = $('.sheet-body', el)?.scrollTop || 0;
     el.innerHTML = `
       <header class="sheet-head">
         <button type="button" class="link" data-close>${spec.closeLabel || (sheets.length > 0 && sheets.indexOf(s) > 0 ? 'Back' : 'Close')}</button>
-        <h2>${esc(typeof spec.title === 'function' ? spec.title() : spec.title)}</h2>
+        <h2 id="${titleId}">${esc(typeof spec.title === 'function' ? spec.title() : spec.title)}</h2>
         <span class="head-right">${spec.right ? spec.right() : ''}</span>
       </header>
       <div class="sheet-body">${spec.html()}</div>`;
@@ -322,6 +325,7 @@ function diaryView() {
 
   return `
   <div class="day-swipe ${ui.slide || ''}">
+  <h1 class="sr-only">Diary, ${esc(prettyDate(d))}</h1>
   <header class="topbar">
     <button type="button" class="icon-btn" data-act="day-prev" aria-label="Previous day">${ICON.chevL}</button>
     <label class="date-pick">
@@ -357,7 +361,7 @@ function diaryView() {
   ${d === todayStr() ? ideasCard(left, t.p - tot.p) : ''}
 
   <section class="card tracker">
-    <div class="tracker-head"><h3>Water</h3><span class="muted">${fmt(cups, 1)} / ${wGoal} cups</span></div>
+    <div class="tracker-head"><h2>Water</h2><span class="muted">${fmt(cups, 1)} / ${wGoal} cups</span></div>
     <div class="cups" role="group" aria-label="Water cups">
       ${Array.from({ length: Math.max(wGoal, Math.ceil(cups)) }, (_, i) => `<span class="cup ${i < Math.floor(cups + 0.001) ? 'full' : ''}"></span>`).join('')}
     </div>
@@ -370,7 +374,7 @@ function diaryView() {
   </section>
 
   <section class="card tracker">
-    <div class="tracker-head"><h3>Caffeine</h3><span class="muted ${caf > cafLim ? 'warn-text' : ''}">${fmt(caf)} / ${cafLim} mg</span></div>
+    <div class="tracker-head"><h2>Caffeine</h2><span class="muted ${caf > cafLim ? 'warn-text' : ''}">${fmt(caf)} / ${cafLim} mg</span></div>
     <p class="hint">Includes caffeine from logged foods. Limit is Health Canada's guidance for your age.</p>
     <div class="row-btns">
       <button type="button" class="btn small" data-act="caffeine" data-mg="34">Soda</button>
@@ -383,7 +387,7 @@ function diaryView() {
   </section>
 
   <section class="card tracker">
-    <div class="tracker-head"><h3>Exercise</h3><span class="muted">${fmt(ex)} kcal</span></div>
+    <div class="tracker-head"><h2>Exercise</h2><span class="muted">${fmt(ex)} kcal</span></div>
     ${dayExercise(d).map((e) => `
       <button type="button" class="row" data-act="exercise-edit" data-id="${e.id}">
         <span class="row-main"><span class="row-title">${esc(e.name)}</span><span class="row-sub">${e.min} min</span></span>
@@ -399,7 +403,7 @@ function mealCard(d, m) {
   const kcal = entries.reduce((a, e) => a + e.n.kcal, 0);
   return `<section class="card meal">
     <div class="meal-head">
-      <h3>${m.label}</h3>
+      <h2>${m.label}</h2>
       <span class="muted">${entries.length ? fmt(kcal) + ' kcal' : ''}</span>
       <button type="button" class="icon-btn small" data-act="meal-menu" data-meal="${m.key}" aria-label="${m.label} options">${ICON.more}</button>
     </div>
@@ -464,7 +468,7 @@ function progressView() {
   ${weeklyCard()}
   ${adaptiveCard()}
   <section class="card">
-    <div class="card-head"><h3>Calories</h3><span class="muted">${n > 31 ? 'weekly average' : 'per day'}</span></div>
+    <div class="card-head"><h2>Calories</h2><span class="muted">${n > 31 ? 'weekly average' : 'per day'}</span></div>
     ${barChart(bars, t.kcal)}
     <div class="stats">
       <div><b>${fmt(avg('kcal'))}</b><span>avg / day</span></div>
@@ -474,7 +478,7 @@ function progressView() {
   </section>
 
   <section class="card">
-    <div class="card-head"><h3>Macros</h3><span class="muted">avg on logged days</span></div>
+    <div class="card-head"><h2>Macros</h2><span class="muted">avg on logged days</span></div>
     <div class="split" aria-hidden="true">
       <i class="m-p" style="flex:${avgP}"></i><i class="m-c" style="flex:${avgC}"></i><i class="m-f" style="flex:${avgF}"></i>
     </div>
@@ -486,7 +490,7 @@ function progressView() {
   </section>
 
   <section class="card">
-    <div class="card-head"><h3>Weight</h3><button type="button" class="btn small" data-act="weight-add">Log weight</button></div>
+    <div class="card-head"><h2>Weight</h2><button type="button" class="btn small" data-act="weight-add">Log weight</button></div>
     ${wPoints.length ? lineChart(wPoints, { unit: isUS() ? 'lb' : 'kg', title: 'Weight trend' }) : '<p class="empty">No weigh-ins in this period.</p>'}
     <div class="stats">
       <div><b>${weightStr(latestWeight(S))}</b><span>latest</span></div>
@@ -498,13 +502,13 @@ function progressView() {
   </section>
 
   <section class="card">
-    <div class="card-head"><h3>Body measurements</h3><button type="button" class="btn small" data-act="measure-add">Add</button></div>
+    <div class="card-head"><h2>Body measurements</h2><button type="button" class="btn small" data-act="measure-add">Add</button></div>
     ${Object.keys(latestMeasures).length ? Object.values(latestMeasures).map((m) => `
       <button type="button" class="row" data-act="measure-history" data-type="${esc(m.type)}"><span class="row-main"><span class="row-title">${esc(measureLabel(m.type))}</span><span class="row-sub">${esc(prettyDate(m.d))}</span></span><span class="row-kcal">${m.type === 'height' ? heightStr(m.cm) : lengthStr(m.cm)}</span></button>`).join('') : '<p class="empty">Track height, waist, chest, arms and more.</p>'}
   </section>
 
   <section class="card">
-    <div class="card-head"><h3>Nutrients</h3><span class="muted">avg on logged days</span></div>
+    <div class="card-head"><h2>Nutrients</h2><span class="muted">avg on logged days</span></div>
     ${MICROS.map((nn) => microRow(nn, avg(nn.key), mt[nn.key])).join('')}
   </section>
 
@@ -544,7 +548,7 @@ function ideasCard(kcalLeft, proteinLeft) {
     : Math.abs(kcalLeft / 2 - x.n.kcal) - Math.abs(kcalLeft / 2 - y.n.kcal));
   const top = cands.slice(0, 3);
   return `<section class="card ideas">
-    <div class="card-head"><h3>Ideas for what's left</h3><span class="muted">${fmt(kcalLeft)} kcal${wantProtein ? ` · ${fmt(proteinLeft)} g protein` : ''}</span></div>
+    <div class="card-head"><h2>Ideas for what's left</h2><span class="muted">${fmt(kcalLeft)} kcal${wantProtein ? ` · ${fmt(proteinLeft)} g protein` : ''}</span></div>
     ${top.map(({ f, a, n }) => `<div class="row-wrap">
       <button type="button" class="row" data-act="fav-open" data-id="${esc(f.id)}"><span class="row-main"><span class="row-title">${esc(f.name)}</span><span class="row-sub">${esc(amountText(a.qty, a.unit))} · ${fmt(n.p)} g protein</span></span><span class="row-kcal">${fmt(n.kcal)}</span></button>
       <button type="button" class="quick" data-act="idea-add" data-id="${esc(f.id)}" aria-label="Add ${esc(f.name)}">${ICON.plus}</button></div>`).join('')}
@@ -558,7 +562,7 @@ function weeklyCard() {
   const t = targets(S);
   const change = w.week.weightChangeKg;
   return `<section class="card">
-    <div class="card-head"><h3>Last 7 days</h3><span class="muted">${w.week.daysLogged} of 7 logged</span></div>
+    <div class="card-head"><h2>Last 7 days</h2><span class="muted">${w.week.daysLogged} of 7 logged</span></div>
     <div class="stats">
       <div><b>${fmt(w.week.avgKcal)}</b><span>avg kcal (${fmt((w.week.avgKcal / t.kcal) * 100)}% of goal)</span></div>
       <div><b>${w.week.kcalDays}/${w.week.daysLogged}</b><span>days on target</span></div>
@@ -597,14 +601,14 @@ function adaptiveCard() {
   const a = adaptiveEstimate();
   if (!a.ready) {
     return `<section class="card">
-      <div class="card-head"><h3>Smart calorie target</h3><span class="muted">learning</span></div>
+      <div class="card-head"><h2>Smart calorie target</h2><span class="muted">learning</span></div>
       <p class="hint">After about two weeks of logging plus two weigh-ins at least 14 days apart, Plateful works out the calories your body actually uses and suggests a target. So far: ${a.days}/14 days logged, ${a.weighs} weigh-in${a.weighs === 1 ? '' : 's'}.</p>
     </section>`;
   }
   const t = targets(S);
   const diff = a.suggested - t.kcal;
   return `<section class="card">
-    <div class="card-head"><h3>Smart calorie target</h3></div>
+    <div class="card-head"><h2>Smart calorie target</h2></div>
     <p>Over the last ${Math.round(a.span)} days you averaged <b>${fmt(a.intake)}</b> kcal and your weight went ${a.dKg >= 0 ? 'up' : 'down'} ${weightStr(Math.abs(a.dKg))}. That puts your real maintenance at about <b>${fmt(a.maintenance)}</b> kcal.</p>
     ${Math.abs(diff) >= 50
       ? `<button type="button" class="btn primary block" data-act="adaptive-apply" data-v="${a.suggested}">Use ${fmt(a.suggested)} kcal as my target</button>
@@ -692,7 +696,7 @@ function settingsView() {
   <header class="topbar"><h1>Profile</h1></header>
   ${standalone ? '' : `<section class="card notice"><b>Install on your iPhone</b><p>In Safari, tap the Share button, then <b>Add to Home Screen</b>. Plateful then opens full screen, works offline, and iOS keeps its data safe from automatic cleanup.</p></section>`}
   <section class="card">
-    <div class="card-head"><h3>${esc(p.name || 'Profile')}</h3><button type="button" class="btn small" data-act="profile">Edit</button></div>
+    <div class="card-head"><h2>${esc(p.name || 'Profile')}</h2><button type="button" class="btn small" data-act="profile">Edit</button></div>
     <dl class="kv">
       <div><dt>Age</dt><dd>${age ?? '–'}</dd></div>
       <div><dt>Sex</dt><dd>${p.sex === 'f' ? 'Female' : 'Male'}</dd></div>
@@ -703,7 +707,7 @@ function settingsView() {
     </dl>
   </section>
   <section class="card">
-    <div class="card-head"><h3>Daily targets</h3><button type="button" class="btn small" data-act="targets">Edit</button></div>
+    <div class="card-head"><h2>Daily targets</h2><button type="button" class="btn small" data-act="targets">Edit</button></div>
     <dl class="kv">
       <div><dt>Calories</dt><dd>${fmt(t.kcal)} kcal <small class="muted">${t.source === 'manual' ? 'set by you' : t.source === 'calculated' ? 'calculated' : 'default; add profile details'}</small></dd></div>
       ${t.estimate && t.source === 'manual' ? `<div><dt>Calculated</dt><dd>${fmt(t.estimate)} kcal</dd></div>` : ''}
@@ -716,11 +720,11 @@ function settingsView() {
     <p class="hint">Calories come from the National Academies' Estimated Energy Requirement equations, which for kids and teens include the extra energy needed to grow. If you're under 18, check with your doctor before aiming to lose weight.</p>
   </section>
   <section class="card">
-    <div class="card-head"><h3>Notifications</h3><button type="button" class="btn small" data-act="notifications">${S.settings.push?.on ? 'Edit' : 'Set up'}</button></div>
+    <div class="card-head"><h2>Notifications</h2><button type="button" class="btn small" data-act="notifications">${S.settings.push?.on ? 'Edit' : 'Set up'}</button></div>
     <p class="hint">${S.settings.push?.on ? notifySummary() : 'Get a nudge when a meal hasn\'t been logged or a goal is still open in the evening.'}</p>
   </section>
   <section class="card">
-    <h3>Data</h3>
+    <h2>Data</h2>
     <button type="button" class="row" data-act="export-csv"><span class="row-main"><span class="row-title">Export food diary (CSV)</span><span class="row-sub">Every entry with calories, macros and nutrients</span></span></button>
     <button type="button" class="row" data-act="export-weights"><span class="row-main"><span class="row-title">Export weight and measurements (CSV)</span></span></button>
     <button type="button" class="row" data-act="backup"><span class="row-main"><span class="row-title">Back up everything</span><span class="row-sub">A file you can restore on another phone</span></span></button>
@@ -729,12 +733,19 @@ function settingsView() {
     <button type="button" class="row danger" data-act="wipe"><span class="row-main"><span class="row-title">Delete all data</span></span></button>
   </section>
   <section class="card">
-    <h3>Privacy</h3>
-    <p class="hint">Everything Plateful records stays on this iPhone. There is no account and no server. When you search for a food or scan a barcode, only the search words or the barcode number go to Open Food Facts (and to USDA if you added a key). Delete all data above erases everything.</p>
+    <h2>Privacy</h2>
+    <p class="hint">Your food diary, weight, measurements and profile stay on this iPhone. There is no account, and nothing is sold or shared.</p>
+    <p class="hint">Two things go online. When you search for a food or scan a barcode, the search words or barcode number go to Open Food Facts (and to USDA if you added a key). If you turn on notifications, Plateful's server stores this phone's notification address, time zone, reminder times, and yes/no flags such as “lunch logged today” so it can skip reminders you don't need. It never receives what you ate, your weight or your name. Turning notifications off deletes that record.</p>
+    <p class="hint">Delete all data above erases everything on this phone and turns notifications off.</p>
   </section>
   <section class="card">
-    <h3>About the food data</h3>
+    <h2>About the food data</h2>
     <p class="hint"><span class="badge ok">USDA</span> About 5,400 foods from USDA's FNDDS database, built into the app, so search works offline. <span class="badge ok">USDA brand</span> Manufacturer label data (needs a key). <span class="badge warn">Community</span> Open Food Facts, a crowd-sourced database: it covers the most barcodes, but check entries against the package label.</p>
+  </section>
+  <section class="card">
+    <h2>Credits</h2>
+    <p class="hint">Food data from <a href="https://fdc.nal.usda.gov/" target="_blank" rel="noopener">USDA FoodData Central</a> (public domain) and <a href="https://world.openfoodfacts.org/" target="_blank" rel="noopener">Open Food Facts</a> (Open Database License). Barcode scanning by <a href="https://github.com/zxing-js/library" target="_blank" rel="noopener">ZXing</a> (Apache License 2.0). Calorie targets use the National Academies' Dietary Reference Intakes.</p>
+    <p class="hint">Plateful gives estimates for general tracking. It isn't medical advice; talk to a doctor or dietitian about weight or eating concerns.</p>
   </section>
   <div class="spacer"></div>`;
 }
@@ -828,6 +839,7 @@ const actions = {
   }),
   wipe: async () => {
     if (!confirm('Delete every entry, food, weigh-in and setting? This cannot be undone.')) return;
+    if (S.settings.push?.endpoint) await disablePush(S);
     await store.wipe();
     S = store.defaultState();
     renderAll();
@@ -845,7 +857,10 @@ const changeActions = {
       const data = JSON.parse(await file.text());
       if (!data || typeof data !== 'object' || !data.diary) throw new Error('not a Plateful backup');
       if (!confirm('Replace everything on this phone with this backup?')) return;
+      // Notification sign-ups belong to a phone, not to the data, so keep this phone's.
+      const push = S.settings.push;
       S = store.migrate(data);
+      S.settings.push = push;
       commit();
       toast('Backup restored');
     } catch (e) {
@@ -1162,8 +1177,9 @@ function openQuickCalories(date, meal, done) {
 async function findFoodFor(query) {
   const mine = Object.values(S.foods);
   for (const q of queryVariants(query)) {
+    // A saved food wins only if it really is that food ("butter" shouldn't pick a PB&J sandwich).
     const hit = searchFoods(mine, q, 1)[0];
-    if (hit) return hit;
+    if (hit && hit.name.toLowerCase().startsWith(q)) return hit;
     const local = (await searchLocal(q, 1))[0];
     if (local) return local;
   }
@@ -1302,7 +1318,7 @@ function openFoodDetail(food, opts) {
     right: () => `<button type="button" class="icon-btn star ${isFav() ? 'on' : ''}" data-fav aria-pressed="${isFav()}" aria-label="Favorite">${ICON.star}</button>`,
     html: () => `
       <div class="food-head">
-        <h3>${esc(food.name)}</h3>
+        <h2>${esc(food.name)}</h2>
         <p class="muted">${badge(food.source)}${esc(food.brand || '')}</p>
         ${food.source === 'off' ? '<p class="hint">Community entry. Compare it with the nutrition label before relying on it.</p>' : ''}
       </div>
@@ -1955,7 +1971,7 @@ function openNotifications() {
   const push = () => S.settings.push || { on: false, badge: true, prefs: structuredClone(DEFAULT_PREFS) };
   const st = { prefs: structuredClone(push().prefs || DEFAULT_PREFS), busy: false, msg: '' };
   const sup = pushSupport();
-  const timeInput = (name, v) => `<input type="time" name="${name}" value="${v}">`;
+  const timeInput = (name, v) => `<input type="time" name="${name}" value="${esc(v)}">`;
   const dayInput = (name, v) => `<select name="${name}">${DAYS.map((d, i) => `<option value="${i}" ${i === v ? 'selected' : ''}>${d}</option>`).join('')}</select>`;
   const toggle = (name, on, label, hint) => `<label class="switch-row"><span><b>${label}</b><small>${hint}</small></span><input type="checkbox" role="switch" name="${name}" ${on ? 'checked' : ''}></label>`;
 

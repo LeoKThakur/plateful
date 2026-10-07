@@ -1,5 +1,5 @@
 // Offline support: the app shell and food database are cached; everything else is network-first.
-const VERSION = 'plateful-v3';
+const VERSION = 'plateful-v4';
 const SHELL = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
   'js/app.js', 'js/store.js', 'js/nutrition.js', 'js/foods.js', 'js/scanner.js', 'js/charts.js', 'js/notify.js', 'js/parse.js', 'js/gestures.js',
