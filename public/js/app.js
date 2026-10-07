@@ -8,7 +8,7 @@ import {
 import {
   loadLocal, localFood, searchLocal, searchFoods, searchOff, offBarcode, searchUsdaBranded, usdaBarcode, SOURCE_BADGE,
 } from './foods.js';
-import { startScanner } from './scanner.js';
+import { startScanner, readBarcodeFromFile, warmUpScanner } from './scanner.js';
 import { barChart, lineChart, ring } from './charts.js';
 import { parseMeal, matchUnit, queryVariants } from './parse.js';
 import { swipeToDelete, swipeDays, dragToClose } from './gestures.js';
@@ -744,7 +744,7 @@ function settingsView() {
   </section>
   <section class="card">
     <h2>Credits</h2>
-    <p class="hint">Food data from <a href="https://fdc.nal.usda.gov/" target="_blank" rel="noopener">USDA FoodData Central</a> (public domain) and <a href="https://world.openfoodfacts.org/" target="_blank" rel="noopener">Open Food Facts</a> (Open Database License). Barcode scanning by <a href="https://github.com/zxing-js/library" target="_blank" rel="noopener">ZXing</a> (Apache License 2.0). Calorie targets use the National Academies' Dietary Reference Intakes.</p>
+    <p class="hint">Food data from <a href="https://fdc.nal.usda.gov/" target="_blank" rel="noopener">USDA FoodData Central</a> (public domain) and <a href="https://world.openfoodfacts.org/" target="_blank" rel="noopener">Open Food Facts</a> (Open Database License). Barcode scanning by <a href="https://github.com/zxing-cpp/zxing-cpp" target="_blank" rel="noopener">zxing-cpp</a> (Apache License 2.0) via <a href="https://github.com/Sec-ant/zxing-wasm" target="_blank" rel="noopener">zxing-wasm</a> (MIT). Calorie targets use the National Academies' Dietary Reference Intakes.</p>
     <p class="hint">Plateful gives estimates for general tracking. It isn't medical advice; talk to a doctor or dietitian about weight or eating concerns.</p>
   </section>
   <div class="spacer"></div>`;
@@ -1131,6 +1131,7 @@ function openAddFood(opts) {
   });
   sheet.refresh = paint;
   loadLocal();
+  warmUpScanner();
   if (st.q) runSearch();
   return sheet;
 }
@@ -1508,12 +1509,27 @@ function openScanner(opts, afterPick) {
         <video playsinline muted autoplay></video>
         <div class="scan-frame" aria-hidden="true"></div>
       </div>
-      <p class="scan-status muted">Point the camera at the barcode.</p>
+      <p class="scan-status muted">Hold the barcode inside the box, about 4 to 6 inches away.</p>
+      <label class="btn block photo-scan">Take a photo of the barcode instead<input type="file" accept="image/*" capture="environment" hidden></label>
       <form class="manual-code">
         <input type="text" inputmode="numeric" placeholder="Or type the barcode number" aria-label="Barcode number" autocomplete="off">
         <button class="btn" type="submit">Look up</button>
       </form>`,
     bind: (el) => {
+      $('.photo-scan input', el).onchange = async (ev) => {
+        const file = ev.target.files?.[0];
+        ev.target.value = '';
+        if (!file) return;
+        const status = $('.scan-status', el);
+        status.textContent = 'Reading the photo…';
+        try {
+          const code = await readBarcodeFromFile(file);
+          if (code) { stop(); handle(code); }
+          else status.textContent = 'No barcode found in that photo. Try again closer, with the whole barcode in view and in focus.';
+        } catch {
+          status.textContent = 'Couldn\'t read that photo. You can type the number below.';
+        }
+      };
       $('.manual-code', el).onsubmit = (ev) => {
         ev.preventDefault();
         stop();
@@ -2011,7 +2027,7 @@ function openNotifications() {
             <div class="field inline"><label>Time</label>${timeInput('weekly-time', p.weekly.time)}</div>
           </section>
           <section class="card">
-            ${toggle('badge', push().badge !== false, 'App icon badge', 'Number of today\'s goals still open')}
+            ${toggle('badge', push().badge !== false, 'App icon badge', 'A 1 on the icon when a reminder is waiting. Opening Plateful clears it.')}
           </section>
           <button class="btn primary block" type="submit" ${st.busy ? 'disabled' : ''}>Save</button>
           <button type="button" class="btn block" data-test>Send a test notification</button>

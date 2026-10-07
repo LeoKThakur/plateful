@@ -1,68 +1,101 @@
-// Barcode scanning with the rear camera. Uses the native BarcodeDetector when the
-// browser has one, otherwise ZXing (iOS Safari has no BarcodeDetector).
+// Barcode scanning with zxing-cpp compiled to WebAssembly (vendor/zxing-wasm). The older
+// JavaScript ZXing port couldn't read iPhone camera frames reliably.
 
-let zxingLoaded = null;
-function loadZxing() {
-  return (zxingLoaded ??= new Promise((resolve, reject) => {
-    if (window.ZXing) return resolve();
+const FORMATS = ['EAN13', 'EAN8', 'UPCA', 'UPCE'];
+const READ_OPTS = { formats: FORMATS, tryHarder: true, tryRotate: true, maxNumberOfSymbols: 1 };
+
+let ready = null;
+function loadReader() {
+  return (ready ??= new Promise((resolve, reject) => {
+    if (window.ZXingWASM) return resolve();
     const s = document.createElement('script');
-    s.src = 'vendor/zxing.min.js';
+    s.src = 'vendor/zxing-wasm/reader.js';
     s.onload = resolve;
     s.onerror = () => reject(new Error('Could not load the scanner'));
     document.head.appendChild(s);
-  }));
+  }).then(() => window.ZXingWASM.prepareZXingModule({
+    // Load the .wasm from this site (cached for offline) instead of a CDN.
+    overrides: { locateFile: (path) => new URL(`vendor/zxing-wasm/${path}`, document.baseURI).href },
+    fireImmediately: true,
+  })));
 }
 
-// Starts scanning into `video`; calls onCode(digits) once. Returns a stop() function.
+// Start loading early so the first scan doesn't wait on the download.
+export function warmUpScanner() {
+  loadReader().catch(() => { ready = null; });
+}
+
+async function read(input) {
+  const results = await window.ZXingWASM.readBarcodes(input, READ_OPTS);
+  const hit = results.find((r) => r.isValid && r.text);
+  return hit ? hit.text : null;
+}
+
+// Starts the rear camera in `video` and calls onCode(digits) once. Returns stop().
 export async function startScanner(video, onCode) {
   let stopped = false;
-  let stopFns = [];
+  let stream;
   const stop = () => {
     stopped = true;
-    stopFns.forEach((f) => { try { f(); } catch {} });
-    stopFns = [];
+    stream?.getTracks().forEach((t) => t.stop());
   };
-  const done = (code) => {
+
+  const [, s] = await Promise.all([
+    loadReader(),
+    navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+    }),
+  ]);
+  stream = s;
+  if (stopped) { stop(); return stop; }
+  // Ask for continuous autofocus where the camera supports it; close-up barcodes need it.
+  const track = stream.getVideoTracks()[0];
+  try {
+    const caps = track.getCapabilities?.() || {};
+    if (caps.focusMode?.includes('continuous')) await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+  } catch {}
+  video.srcObject = stream;
+  video.setAttribute('playsinline', '');
+  video.muted = true;
+  await video.play();
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  let frame = 0;
+  const tick = async () => {
     if (stopped) return;
-    stop();
-    navigator.vibrate?.(40);
-    onCode(code);
-  };
-
-  const formats = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
-  if ('BarcodeDetector' in window) {
-    const supported = await window.BarcodeDetector.getSupportedFormats().catch(() => []);
-    if (formats.some((f) => supported.includes(f))) {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-      stopFns.push(() => stream.getTracks().forEach((t) => t.stop()));
-      video.srcObject = stream;
-      await video.play();
-      const det = new window.BarcodeDetector({ formats: formats.filter((f) => supported.includes(f)) });
-      const tick = async () => {
-        if (stopped) return;
-        try {
-          const codes = await det.detect(video);
-          if (codes[0]) return done(codes[0].rawValue);
-        } catch {}
-        setTimeout(tick, 150);
-      };
-      tick();
-      return stop;
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (w && h) {
+      // Alternate between the middle band (where the on-screen box is) and the whole frame.
+      const band = frame++ % 2 === 0;
+      const sx = band ? w * 0.05 : 0;
+      const sy = band ? h * 0.25 : 0;
+      const sw = band ? w * 0.9 : w;
+      const sh = band ? h * 0.5 : h;
+      const scale = Math.min(1, 1280 / sw);
+      canvas.width = Math.round(sw * scale);
+      canvas.height = Math.round(sh * scale);
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      try {
+        const code = await read(ctx.getImageData(0, 0, canvas.width, canvas.height));
+        if (code && !stopped) {
+          stop();
+          navigator.vibrate?.(40);
+          onCode(code);
+          return;
+        }
+      } catch {}
     }
-  }
-
-  await loadZxing();
-  const Z = window.ZXing;
-  const hints = new Map();
-  hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.EAN_13, Z.BarcodeFormat.EAN_8, Z.BarcodeFormat.UPC_A, Z.BarcodeFormat.UPC_E]);
-  hints.set(Z.DecodeHintType.TRY_HARDER, true);
-  const reader = new Z.BrowserMultiFormatReader(hints, 200);
-  stopFns.push(() => reader.reset());
-  await reader.decodeFromConstraints(
-    { video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
-    video,
-    (result) => { if (result) done(result.getText()); },
-  );
-  if (stopped) reader.reset();
+    setTimeout(tick, 80);
+  };
+  tick();
   return stop;
+}
+
+// Reads a barcode from a photo (the "Take a photo" fallback). Returns the digits or null.
+export async function readBarcodeFromFile(file) {
+  await loadReader();
+  return read(file);
 }

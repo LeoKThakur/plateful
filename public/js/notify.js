@@ -1,4 +1,5 @@
-// Push reminders and the app-icon badge.
+// Push reminders and the app-icon badge (set by the service worker when a reminder
+// arrives about something still missing; cleared whenever the app is open).
 //
 // The server only learns which meals have entries today, whether the day's goals are
 // met, and the last weigh-in date. The notification text is written on the phone by the
@@ -67,6 +68,7 @@ export function computeSummary(S) {
     meals,
     open,
     goalsMet: open.length === 0,
+    badge: S.settings.push?.badge !== false,
     lastWeigh: latest?.d || null,
     week: {
       daysLogged: logged.length,
@@ -87,7 +89,7 @@ export function afterChange(S) {
   statusTimer = setTimeout(async () => {
     const sum = computeSummary(S);
     await saveSummary(sum);
-    updateBadge(S, sum);
+    updateBadge();
     const push = S.settings.push;
     if (!push?.on || !push.endpoint || !navigator.onLine) return;
     const status = { date: sum.date, meals: sum.meals, goalsMet: sum.goalsMet, lastWeigh: sum.lastWeigh };
@@ -100,11 +102,9 @@ export function afterChange(S) {
   }, 1200);
 }
 
-function updateBadge(S, sum) {
-  if (!('setAppBadge' in navigator)) return;
-  if (!S.settings.push?.badge || Notification?.permission !== 'granted') return navigator.clearAppBadge?.().catch(() => {});
-  const n = sum.open.length;
-  (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
+// The badge means "a reminder is waiting". Opening the app counts as seeing it, so clear it.
+function updateBadge() {
+  if (document.visibilityState === 'visible') navigator.clearAppBadge?.().catch(() => {});
 }
 
 async function post(path, body) {

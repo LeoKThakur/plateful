@@ -1,9 +1,9 @@
 // Offline support: the app shell and food database are cached; everything else is network-first.
-const VERSION = 'plateful-v4';
+const VERSION = 'plateful-v5';
 const SHELL = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
   'js/app.js', 'js/store.js', 'js/nutrition.js', 'js/foods.js', 'js/scanner.js', 'js/charts.js', 'js/notify.js', 'js/parse.js', 'js/gestures.js',
-  'data/fndds.json', 'vendor/zxing.min.js',
+  'data/fndds.json', 'vendor/zxing-wasm/reader.js', 'vendor/zxing-wasm/zxing_reader.wasm',
   'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 
@@ -109,8 +109,11 @@ self.addEventListener('push', (e) => {
       tag: `plateful-${data.kind || 'note'}`,
       data: { url: data.kind === 'weigh' ? './?go=weigh' : data.kind === 'weekly' ? './?go=progress' : './' },
     });
-    if (s && s.date === localDate() && 'setAppBadge' in self.navigator) {
-      try { s.open.length ? await self.navigator.setAppBadge(s.open.length) : await self.navigator.clearAppBadge(); } catch {}
+    // Badge = "something needs you": a meal not logged, goals still open, a weigh-in due.
+    // Opening the app clears it. Tests, summaries and "all done" messages don't set it.
+    const needsAction = ['meal', 'goal', 'weigh'].includes(data.kind) && !/is logged|goals hit/i.test(title);
+    if (needsAction && s?.badge !== false && 'setAppBadge' in self.navigator) {
+      try { await self.navigator.setAppBadge(1); } catch {}
     }
   })());
 });
