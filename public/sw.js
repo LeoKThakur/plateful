@@ -1,10 +1,10 @@
 // Offline support: the app shell and food database are cached; everything else is network-first.
-const VERSION = 'plateful-v5';
+const VERSION = 'plateful-v6';
 const SHELL = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
-  'js/app.js', 'js/store.js', 'js/nutrition.js', 'js/foods.js', 'js/scanner.js', 'js/charts.js', 'js/notify.js', 'js/parse.js', 'js/gestures.js',
+  'js/app.js', 'js/store.js', 'js/nutrition.js', 'js/foods.js', 'js/scanner.js', 'js/charts.js', 'js/notify.js', 'js/parse.js', 'js/gestures.js', 'js/platform.js',
   'data/fndds.json', 'vendor/zxing-wasm/reader.js', 'vendor/zxing-wasm/zxing_reader.wasm',
-  'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png',
+  'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/badge-96.png',
 ];
 
 self.addEventListener('install', (e) => {
@@ -105,7 +105,7 @@ self.addEventListener('push', (e) => {
     await self.registration.showNotification(title, {
       body,
       icon: 'icons/icon-192.png',
-      badge: 'icons/icon-192.png',
+      badge: 'icons/badge-96.png',
       tag: `plateful-${data.kind || 'note'}`,
       data: { url: data.kind === 'weigh' ? './?go=weigh' : data.kind === 'weekly' ? './?go=progress' : './' },
     });

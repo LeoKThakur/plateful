@@ -8,7 +8,59 @@
   "background_color": "#f2f1ec",
   "theme_color": "#1f7a4d",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/badge-96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "monochrome"
+    }
+  ],
+  "id": "/",
+  "orientation": "portrait",
+  "categories": [
+    "health",
+    "food",
+    "lifestyle"
+  ],
+  "screenshots": [
+    {
+      "src": "screenshots/1-diary.png",
+      "sizes": "780x1688",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Daily diary"
+    },
+    {
+      "src": "screenshots/3-search.png",
+      "sizes": "780x1688",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Food search"
+    },
+    {
+      "src": "screenshots/6-progress.png",
+      "sizes": "780x1688",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Progress"
+    }
   ]
 }

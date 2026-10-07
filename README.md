@@ -1,7 +1,12 @@
 # Plateful
 
-A private calorie and nutrition tracker for iPhone, built as an installable web app
-(no Mac or App Store account needed). Food data stays on the phone in IndexedDB.
+A private calorie and nutrition tracker for iPhone and Android, built as an installable
+web app (no app store needed). Food data stays on the phone in IndexedDB.
+
+**Install:** open the link below on your phone.
+- iPhone: in Safari, tap Share › Add to Home Screen.
+- Android: in Chrome, tap Install app when offered (or ⋮ › Install app), or use the
+  Install button under Profile.
 
 Live: https://plateful.leokthakur.workers.dev
 
@@ -63,7 +68,8 @@ calories, protein or water are still short), a weekly weigh-in, and a weekly sum
 The server never receives food entries. The app sends only which meals have entries
 today, whether goals are met, and the last weigh-in date. The push carries just the
 reminder type; the service worker writes the text from a summary saved on the phone.
-iPhone only delivers web push to apps added to the Home Screen (iOS 16.4+).
+iPhone only delivers web push to apps added to the Home Screen (iOS 16.4+); Android Chrome
+delivers it to installed apps and browser tabs alike.
 
 ## Data sources
 - `public/data/fndds.json`: about 5,400 generic and restaurant foods from USDA FNDDS 2021–2023,

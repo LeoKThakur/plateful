@@ -8,6 +8,7 @@ import {
 import {
   loadLocal, localFood, searchLocal, searchFoods, searchOff, offBarcode, searchUsdaBranded, usdaBarcode, SOURCE_BADGE,
 } from './foods.js';
+import { isIOS, isAndroid, isStandalone, canPromptInstall, promptInstall, onInstallChange, cameraHelp } from './platform.js';
 import { startScanner, readBarcodeFromFile, warmUpScanner } from './scanner.js';
 import { barChart, lineChart, ring } from './charts.js';
 import { parseMeal, matchUnit, queryVariants } from './parse.js';
@@ -198,6 +199,7 @@ function openSheet(spec) {
   };
   s.refresh = spec.live ? s.render : null;
   sheets.push(s);
+  armBack();
   document.getElementById('sheets').appendChild(el);
   s.render();
   requestAnimationFrame(() => el.classList.add('open'));
@@ -205,7 +207,7 @@ function openSheet(spec) {
   return s;
 }
 
-function closeSheet(s = sheets[sheets.length - 1]) {
+function closeSheet(s = sheets[sheets.length - 1], { fromBack = false } = {}) {
   if (!s) return;
   const i = sheets.indexOf(s);
   if (i < 0) return;
@@ -213,8 +215,38 @@ function closeSheet(s = sheets[sheets.length - 1]) {
   s.onClose?.();
   s.el.classList.remove('open');
   setTimeout(() => s.el.remove(), 280);
-  if (!sheets.length) document.body.classList.remove('has-sheet');
+  if (!sheets.length) {
+    document.body.classList.remove('has-sheet');
+    if (!fromBack) disarmBack();
+  }
 }
+
+// Android's Back button (and browser Back) closes the top sheet instead of leaving the app.
+// While any sheet is open there is exactly one extra history entry to catch it.
+let backArmed = false;
+let swallowPops = 0;
+function armBack() {
+  if (backArmed) return;
+  history.pushState({ plateful: 'sheet' }, '');
+  backArmed = true;
+}
+function disarmBack() {
+  if (!backArmed) return;
+  backArmed = false;
+  swallowPops++;
+  history.back();
+}
+window.addEventListener('popstate', () => {
+  if (swallowPops) {
+    swallowPops--;
+    if (sheets.length) armBack(); // a sheet opened while the old entry was being removed
+    return;
+  }
+  backArmed = false;
+  if (!sheets.length) return;
+  closeSheet(sheets[sheets.length - 1], { fromBack: true });
+  if (sheets.length) armBack();
+});
 
 function closeAllSheets() {
   [...sheets].reverse().forEach((s) => closeSheet(s));
@@ -690,11 +722,10 @@ function settingsView() {
   const p = S.profile;
   const t = targets(S);
   const age = ageYears(p.birth);
-  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const g = S.goals;
   return `
   <header class="topbar"><h1>Profile</h1></header>
-  ${standalone ? '' : `<section class="card notice"><b>Install on your iPhone</b><p>In Safari, tap the Share button, then <b>Add to Home Screen</b>. Plateful then opens full screen, works offline, and iOS keeps its data safe from automatic cleanup.</p></section>`}
+  ${installCard()}
   <section class="card">
     <div class="card-head"><h2>${esc(p.name || 'Profile')}</h2><button type="button" class="btn small" data-act="profile">Edit</button></div>
     <dl class="kv">
@@ -734,7 +765,7 @@ function settingsView() {
   </section>
   <section class="card">
     <h2>Privacy</h2>
-    <p class="hint">Your food diary, weight, measurements and profile stay on this iPhone. There is no account, and nothing is sold or shared.</p>
+    <p class="hint">Your food diary, weight, measurements and profile stay on this phone. There is no account, and nothing is sold or shared.</p>
     <p class="hint">Two things go online. When you search for a food or scan a barcode, the search words or barcode number go to Open Food Facts (and to USDA if you added a key). If you turn on notifications, Plateful's server stores this phone's notification address, time zone, reminder times, and yes/no flags such as “lunch logged today” so it can skip reminders you don't need. It never receives what you ate, your weight or your name. Turning notifications off deletes that record.</p>
     <p class="hint">Delete all data above erases everything on this phone and turns notifications off.</p>
   </section>
@@ -748,6 +779,17 @@ function settingsView() {
     <p class="hint">Plateful gives estimates for general tracking. It isn't medical advice; talk to a doctor or dietitian about weight or eating concerns.</p>
   </section>
   <div class="spacer"></div>`;
+}
+
+function installCard() {
+  if (isStandalone()) return '';
+  const why = 'Plateful then opens full screen, works offline, can send reminders, and your phone keeps its data safe from automatic cleanup.';
+  if (canPromptInstall()) {
+    return `<section class="card notice"><b>Install Plateful</b><p>${why}</p><button type="button" class="btn primary block" data-act="install">Install app</button></section>`;
+  }
+  if (isIOS) return `<section class="card notice"><b>Install on your iPhone</b><p>In Safari, tap the Share button, then <b>Add to Home Screen</b>. ${why}</p></section>`;
+  if (isAndroid) return `<section class="card notice"><b>Install on your phone</b><p>In Chrome, tap the <b>⋮</b> menu, then <b>Install app</b> (or <b>Add to Home screen</b>). ${why}</p></section>`;
+  return '';
 }
 
 // ---------- event binding for the main view ----------
@@ -827,6 +869,10 @@ const actions = {
     if (f) openFoodDetail(f, { date: ui.date, meal: defaultMealForNow() });
   },
   profile: () => openProfile(),
+  install: async () => {
+    if ((await promptInstall()) === 'accepted') toast('Installed. Open Plateful from your home screen.');
+    renderMain();
+  },
   notifications: () => openNotifications(),
   targets: () => openTargets(),
   'export-csv': () => exportDiaryCsv(),
@@ -1508,6 +1554,9 @@ function openScanner(opts, afterPick) {
       <div class="scanner">
         <video playsinline muted autoplay></video>
         <div class="scan-frame" aria-hidden="true"></div>
+        <button type="button" class="torch" hidden aria-pressed="false" aria-label="Flashlight">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l-1.5 5v3l-1.5 2v8h-2v-8L9.5 11V8z"/></svg>
+        </button>
       </div>
       <p class="scan-status muted">Hold the barcode inside the box, about 4 to 6 inches away.</p>
       <label class="btn block photo-scan">Take a photo of the barcode instead<input type="file" accept="image/*" capture="environment" hidden></label>
@@ -1539,10 +1588,21 @@ function openScanner(opts, afterPick) {
     onClose: () => stop(),
   });
   startScanner($('video', sheet.el), handle)
-    .then((fn) => { stop = fn; if (!sheets.includes(sheet)) fn(); })
+    .then((fn) => {
+      stop = fn;
+      if (!sheets.includes(sheet)) return fn();
+      const torch = $('.torch', sheet.el);
+      if (fn.torch && torch) {
+        torch.hidden = false;
+        torch.onclick = async () => {
+          const on = torch.getAttribute('aria-pressed') !== 'true';
+          if (await fn.torch(on)) torch.setAttribute('aria-pressed', on);
+        };
+      }
+    })
     .catch((e) => {
       const msg = e?.name === 'NotAllowedError'
-        ? 'Camera access is off. Allow it in Settings › Safari › Camera (or for the home-screen app), or type the number below.'
+        ? cameraHelp()
         : 'The camera couldn\'t start. You can type the barcode number below.';
       $('.scan-status', sheet.el).textContent = msg;
     });
@@ -2004,7 +2064,7 @@ function openNotifications() {
       return `
         ${st.msg ? `<p class="hint ${st.msgBad ? 'warn-text' : ''}">${esc(st.msg)}</p>` : ''}
         ${on ? '' : `<button type="button" class="btn primary block" data-enable ${st.busy ? 'disabled' : ''}>${st.busy ? 'Turning on…' : 'Turn on notifications'}</button>
-          <p class="hint">iPhone will ask for permission. Reminders only go out when something is still missing: a meal you haven't logged, or goals that are still open in the evening.</p>`}
+          <p class="hint">Your phone will ask for permission. Reminders only go out when something is still missing: a meal you haven't logged, or goals that are still open in the evening.</p>`}
         <form class="form notif-form" ${on ? '' : 'hidden'}>
           <section class="card">
             ${toggle('goal-on', p.goal.on, 'Evening goal check', 'Calories, protein or water still short')}
@@ -2145,6 +2205,7 @@ async function boot() {
     openDeepLink(go);
   }
   renderMain();
+  onInstallChange(() => { if (ui.tab === 'settings') renderMain(); });
   if (!S.settings.onboarded) openProfile(true);
   afterChange(S);
   checkSubscription(S).then(() => store.save(S));

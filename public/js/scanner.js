@@ -40,15 +40,27 @@ export async function startScanner(video, onCode) {
     stream?.getTracks().forEach((t) => t.stop());
   };
 
+  const size = { width: { ideal: 1920 }, height: { ideal: 1080 } };
   const [, s] = await Promise.all([
     loadReader(),
-    navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-    }),
+    navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, ...size } }),
   ]);
   stream = s;
   if (stopped) { stop(); return stop; }
+
+  // Phones with several rear cameras may hand us an ultra-wide or telephoto lens that can't
+  // focus up close. Switch to the main one when we can tell which it is.
+  const main = await mainRearCamera(stream.getVideoTracks()[0]);
+  if (main) {
+    stream.getTracks().forEach((t) => t.stop());
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { deviceId: { exact: main }, ...size } });
+    } catch {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, ...size } });
+    }
+    if (stopped) { stop(); return stop; }
+  }
+
   // Ask for continuous autofocus where the camera supports it; close-up barcodes need it.
   const track = stream.getVideoTracks()[0];
   try {
@@ -91,7 +103,31 @@ export async function startScanner(video, onCode) {
     setTimeout(tick, 80);
   };
   tick();
+
+  // Flashlight, where the phone allows web apps to use it (most Android phones do; iPhone doesn't).
+  const caps = track.getCapabilities?.() || {};
+  if (caps.torch) {
+    stop.torch = async (on) => {
+      try { await track.applyConstraints({ advanced: [{ torch: on }] }); return true; } catch { return false; }
+    };
+  }
   return stop;
+}
+
+async function mainRearCamera(current) {
+  try {
+    const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput' && d.label);
+    const rear = cams.filter((d) => /back|rear|environment/i.test(d.label));
+    if (rear.length < 2) return null;
+    const odd = /ultra|wide|tele|depth|macro|infrared/i;
+    // Android names cameras "camera2 0, facing back"; the lowest-numbered rear one is the main lens.
+    const android = rear.filter((d) => /camera2 (\d+)/.test(d.label)).sort((a, b) => +a.label.match(/camera2 (\d+)/)[1] - +b.label.match(/camera2 (\d+)/)[1]);
+    const pick = android[0] || rear.find((d) => !odd.test(d.label));
+    const now = current.getSettings().deviceId;
+    return pick && pick.deviceId !== now && (odd.test(current.label) || android.length) ? pick.deviceId : null;
+  } catch {
+    return null;
+  }
 }
 
 // Reads a barcode from a photo (the "Take a photo" fallback). Returns the digits or null.
